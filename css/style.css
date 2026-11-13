@@ -94,7 +94,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; }
   border: 2px solid #3a3c42; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 .card h2 { font-family: var(--display); font-size: 30px; margin: 0 0 10px; font-weight: normal; }
 .card p { line-height: 1.5; color: #d9d9d9; margin: 8px 0; }
-.card .tip { background: #2f2a17; border-left: 4px solid var(--accent); padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.card .tip { background: #2f2a17; border: 1px solid rgba(242,201,76,.35); padding: 10px 12px; border-radius: 10px; font-size: 14px; }
 .card .goal { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
 .card .goal div { background: var(--panel-2); border-radius: 12px; padding: 10px; text-align: center; }
 .card .goal b { display: block; font-family: var(--display); font-size: 26px; font-weight: normal; }

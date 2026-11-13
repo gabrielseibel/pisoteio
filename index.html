@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pisoteio — você planeja, eles chegam</title>
+  <meta name="description" content="Simulador de gestão de multidões no navegador. Planeje grades e portões para que ninguém seja pisoteado.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%98%A0%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- MENU -->
+  <section id="menu" class="screen">
+    <div class="menu-inner">
+      <h1 class="logo">PISOTEIO</h1>
+      <p class="tagline">Você planeja. Eles chegam.</p>
+      <div id="level-list" class="level-list"></div>
+      <p class="how">Coloque <b>grades</b> e abra <b>portões</b> antes do evento.<br>Depois aperte <b>Começar</b> e torça. Cada pessoa pisoteada conta.</p>
+      <p class="credit">MVP inspirado num trailer conceitual de @bonkbureau.</p>
+    </div>
+  </section>
+
+  <!-- JOGO -->
+  <section id="game" class="screen hidden">
+    <header class="hud">
+      <button id="btn-back" class="icon-btn" title="Menu">☰</button>
+      <div class="hud-mid">
+        <div id="level-name" class="level-name"></div>
+        <div id="phase" class="phase">Planejamento</div>
+      </div>
+      <div class="money" title="Orçamento"><span id="money">0</span></div>
+    </header>
+
+    <div id="stage-wrap" class="stage-wrap">
+      <canvas id="view"></canvas>
+      <div id="badge" class="badge"><span class="skull">☠</span> PISOTEADOS <b id="trampled">0</b></div>
+      <div id="banner" class="banner"></div>
+      <div id="limit" class="limit"></div>
+    </div>
+
+    <footer class="toolbar">
+      <div id="plan-tools" class="group">
+        <button class="tool active" data-tool="fence"><span class="t-ico fence-ico"></span>Grade<small id="cost-fence"></small></button>
+        <button class="tool" data-tool="gate"><span class="t-ico gate-ico"></span>Portão<small id="cost-gate"></small></button>
+        <button class="tool" data-tool="erase"><span class="t-ico">✕</span>Apagar</button>
+      </div>
+      <div id="run-tools" class="group hidden">
+        <button class="speed active" data-speed="1">1×</button>
+        <button class="speed" data-speed="2">2×</button>
+        <button class="speed" data-speed="4">4×</button>
+        <button id="btn-pause" class="speed">❚❚</button>
+      </div>
+      <div class="group">
+        <button id="btn-heat" class="toggle active" title="Mapa de calor">🔥</button>
+        <button id="btn-reset" class="toggle" title="Replanejar">↺</button>
+        <button id="btn-start" class="primary">▶ Começar</button>
+      </div>
+    </footer>
+  </section>
+
+  <!-- MODAL -->
+  <div id="modal" class="modal hidden">
+    <div class="card">
+      <h2 id="m-title"></h2>
+      <div id="m-body"></div>
+      <div id="m-actions" class="actions"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

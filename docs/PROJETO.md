@@ -1,7 +1,7 @@
 # PISOTEIO: documento de projeto (GDD + arquitetura)
 
 > **Você planeja. Eles chegam.**
-> Um simulador de gestão de multidões para navegador. O jogador não controla ninguém: ele desenha o espaço (grades, portões) e assiste a multidão reagir. A métrica de fracasso é o contador **PISOTEADOS**.
+> Um simulador de gestão de multidões para navegador. O jogador não controla ninguém: ele desenha o espaço (grades, portões, seguranças) e assiste a multidão reagir. A métrica de fracasso é o contador **PISOTEADOS**.
 
 ---
 
@@ -25,53 +25,68 @@ Os prints abaixo estão em `docs/referencias/`. Use-os como **referência de cli
 | 04 | ![](referencias/04-corrida-pista.png) | Variação: pista de corrida (estilo Pamplona) com arquibancadas. O selo fica **amarelo** quando o contador sobe. |
 | 05 | ![](referencias/05-cidade-dia.png) | Escala de cidade: quarteirões com telhados variados, parque arborizado, praça central com palco. A multidão ocupa as ruas. |
 | 06 | ![](referencias/06-cidade-noite-heatmap.png) | A mesma cidade **à noite**, só com o mapa de calor nas ruas (modo "análise"). |
-| 07 | ![](referencias/07-estadio-tifo.png) | Estádio de futebol com **tifo** (mosaico formado pela torcida). Possível modo futuro. |
+| 07 | ![](referencias/07-estadio-tifo.png) | Estádio de futebol com **tifo** (mosaico formado pela torcida). Virou a fase **Clássico no Estádio** (mosaico animado na arquibancada). |
 
 ---
 
 ## 2. Pilares de design
 
-1. **Planejar, não controlar.** Todo o poder do jogador está no espaço. Durante o evento ele só assiste (e acelera ou pausa).
-2. **Comportamento emergente.** Ninguém programa "aqui alguém morre". O pisoteio surge da física simples de muita gente querendo ir para o mesmo lugar.
-3. **Leitura instantânea.** Azul é seguro e vermelho é perigo. Um X vermelho no chão é uma vítima. Qualquer pessoa entende o mapa de calor sem tutorial.
-4. **Humor seco, tema sério.** O tom é o do trailer: o contador em selo de cartoon contrasta com a gravidade do tema. O jogo **não** mostra violência gráfica, só um X e um anel vermelho.
+1. **Planejar, não controlar.** Todo o poder do jogador está no espaço. Durante o evento ninguém obedece a cliques: o jogador só pode fazer **obras de emergência** (pagando o dobro) e reposicionar a câmera.
+2. **Comportamento emergente.** Ninguém programa "aqui alguém morre". O pisoteio surge de regras simples: muita gente indo para o mesmo lugar, ondas de euforia, pânico que se espalha depois de uma queda.
+3. **Leitura instantânea.** Azul é seguro e vermelho é perigo. Um anel vermelho em volta de alguém avisa que a pessoa está quase caindo. Um X é uma vítima.
+4. **Humor seco, tema sério.** O selo de cartoon contrasta com a gravidade do tema. Não há violência gráfica.
 
 ---
 
-## 3. Loop de jogo (MVP)
+## 3. Loop de jogo
 
 ```
-MENU → BRIEFING → PLANEJAMENTO → SIMULAÇÃO → RESULTADO
-                       ↑                        │
-                       └──── Replanejar ────────┘
+MENU → BRIEFING → PLANEJAMENTO → EVENTO AO VIVO → RESULTADO (estrelas + gráfico)
+                       ↑        (obras de emergência ×2)      │
+                       └────────────── Replanejar ────────────┘
 ```
 
-1. **Briefing:** a fase apresenta o evento, o número de pessoas, o limite de pisoteados e uma dica.
-2. **Planejamento ("VOCÊ PLANEJA"):** com o orçamento (R$), o jogador:
-   - coloca **grades** em células de chão (barreira preta);
-   - abre **portões** em células do muro externo (saída extra);
-   - **apaga** o que colocou (reembolso total).
-   Rastros animados mostram por onde o público vai passar (prévia do fluxo).
-3. **Simulação ("ELES CHEGAM"):** o evento roda em fases (`enter` → `hold` → `move` → `exit`). Velocidade de 1×, 2× ou 4×, com pausa. O mapa de calor pode ser ligado e desligado.
-4. **Resultado:** estrelas conforme os pisoteados:
-   - ★★★ = 0 pisoteados
-   - ★★ = até metade do limite
-   - ★ = até o limite
-   - acima do limite = "Tragédia" (replanejar)
+### 3.1 Ferramentas
+| Ferramenta | O que faz | Custo típico |
+|---|---|---|
+| ✋ Mover | Arrasta a câmera (também: dois dedos, botão do meio) | — |
+| Grade | Barreira de 1 m sobre chão ou grama. Divide setores, cria corredores e mão única | R$ 4 |
+| Portão / Abrir | Abre um portão no muro externo **ou** uma passagem fechada (listras amarelas e pretas: vomitório, catraca, escada interditada, tapume) | R$ 25–45 |
+| Segurança | Raio de 5 m: reduz o ganho de estresse, a euforia e faz o pânico passar mais rápido | R$ 30 |
+| Apagar | Remove e reembolsa o valor-base (botão direito também apaga) | — |
 
-### 3.1 Fases do MVP
+Durante o evento todos os custos dobram (selo **obra ×2**) e as rotas são recalculadas na hora.
 
-| # | Fase | Pessoas | Limite | Desafio principal | Referência |
-|---|------|---------|--------|-------------------|------------|
-| 1 | Show no Pátio | 900 | 5 | Dois portões estreitos e evacuação em massa | quadros 01–03 |
-| 2 | Festival de Dois Palcos | 650 | 15 | Travessia do campo entre palcos e barracas | — |
-| 3 | Praça da Cidade | 850 | 12 | 14 ruas convergindo; não pode abrir portões | quadros 05–06 |
+### 3.2 Câmera
+- Pinça (celular), roda do mouse ou pinça do trackpad: zoom de "ver tudo" até ~60 px/m.
+- Botões **+ / − / ⤢**.
+- 🎥 **Câmera do perigo**: segue suavemente o ponto mais apertado da multidão, como as tomadas do trailer.
+- Abertura cinematográfica: cada fase começa perto do palco (ou do trio) e afasta até mostrar o mapa.
 
-Calibração atual (sem nenhuma construção do jogador → com um plano razoável, ver `tests/headless.mjs`):
+### 3.3 Fases
+| # | Fase | Pessoas | Limite | Mecânica central | Referência |
+|---|------|---------|--------|------------------|------------|
+| 1 | 🎤 Show no Pátio | 900 | 8 | Portões estreitos, ondas de euforia contra a grade da passarela | quadros 01–03 |
+| 2 | 🎪 Festival de Dois Palcos | 650 | 22 | Toda a multidão atravessa o campo entre barracas | — |
+| 3 | 🎆 Réveillon na Praça (noite) | 1300 | 8 | Oito ruas convergindo; sem portões; contagem regressiva com fogos | quadros 05–06 |
+| 4 | ⚽ Clássico no Estádio | 1700 | 5 | Torcida já sentada; mosaico; saída por vomitórios e portões | quadro 07 |
+| 5 | 🎺 Bloco de Carnaval | 1400 | 14 | Trio elétrico em movimento arrasta a multidão; viaduto estreita a avenida | — |
+| 6 | 🚇 Estação na Hora do Rush | 1150 | 5 | Cinco trens despejam passageiros em sequência; escadas e catracas | — |
 
-- Fase 1: ~7–11 → 2
-- Fase 2: ~56 → 5
-- Fase 3: ~16 → 11
+Calibração (semente 7, `node tests/headless.mjs`), sem plano → com plano de referência:
+
+| Fase | Sem plano | Com plano |
+|---|---|---|
+| Pátio | 16 | 4 (sementes 1–3: 5–8) |
+| Festival | 33 | 21 |
+| Réveillon | 10 | 6 |
+| Estádio | 10 | 0 |
+| Carnaval | 32 | 11 |
+| Metrô | 11 | 0 |
+
+### 3.4 Resultado
+- ★★★ = 0 pisoteados · ★★ = até metade do limite · ★ = até o limite · acima = "Tragédia".
+- Gráfico de **pressão máxima (p/m²)** e **pisoteados** ao longo do tempo, com a faixa de perigo marcada, para o jogador entender *quando* o espaço falhou.
 
 ---
 
@@ -80,56 +95,65 @@ Calibração atual (sem nenhuma construção do jogador → com um plano razoáv
 Arquivo: `js/sim.js`. **Não acessa DOM**, então roda igual no navegador e no Node.
 
 ### 4.1 Mundo
-- Grade de células de **1 m × 1 m** (mapas de 36 × 60, em formato retrato como o vídeo).
-- Tipos de célula (`TILE`): `FLOOR`, `WALL` (muro do perímetro), `BUILDING`, `STAGE`, `FENCE` (do jogador), `GATE`.
-- `zone[i]`: índice da plateia (−1 = nenhuma). `spawn[i]`: portão por onde o público entra.
+- Grade de células de **1 m × 1 m**. Os mapas vão de 36 × 60 a 64 × 76.
+- Tipos (`TILE`): `FLOOR`, `WALL`, `BUILDING`, `STAGE`, `FENCE`, `GATE`, `SEATS` (arquibancada: 42% da velocidade, custo 2,4), `GRASS` (85%), `STAIRS` (62%), `PITCH` e `TRACK` (isolados).
+- `zone[i]`: plateia. `spawn[i]`: portão de entrada. `openable[i]`: parede que o jogador pode abrir. `doors`: portas do trem.
+- `World.version` aumenta a cada edição; a simulação e o renderizador reagem na hora (edição em tempo real).
 
-### 4.2 Rotas: campo de fluxo (flow field)
-- **Dijkstra** a partir das células-alvo (plateia da fase atual, ou portões na evacuação), com 8 vizinhos e sem cortar quinas.
-- **Custo de congestionamento:** cada célula custa `1 + congestionCost × densidade`. O campo é recalculado a cada 1 s, então as pessoas desviam de aglomerações.
-- Cada pessoa lê a direção do campo com interpolação bilinear, para o movimento ficar suave.
-- Um segundo campo, `stageField`, aponta para a borda do palco. Quem já está na plateia avança para a frente enquanto houver espaço.
+### 4.2 Rotas: campo de fluxo
+- **Dijkstra** a partir das células-alvo, 8 vizinhos, sem cortar quinas.
+- Custo = distância × custo do piso × (1 + `congestionCost` × densidade). Recalculado a cada 1 s (0,5 s durante o desfile), então a multidão desvia de aglomerações.
+- `stageField` aponta para a borda do palco ou, sem palco, para o trio elétrico.
 
-### 4.3 Pessoas (agentes)
-Estrutura de arrays (`Float32Array`) para desempenho: `x, y, vx, vy, v0, stress, state`.
+### 4.3 Pessoas
+Arrays tipados: `x, y, vx, vy, v0, stress, panic, fx, fy, heading, walk, shirt, state`.
 
-Cada passo (`dt = 1/30 s`):
-1. **Vontade:** direção do campo × velocidade desejada (`v0 ≈ 1,3 m/s`).
-2. **Diagrama fundamental:** a velocidade cai com a densidade *à frente* (`1 − ρ/ρ_jam`). A **urgência** (pressa na evacuação, euforia no show) aumenta `ρ_jam`, então as pessoas empurram mesmo no aperto.
-3. **Empurra-empurra:** dinâmica baseada em posição "macia" (`pushK < 1`, 3 iterações). Isso permite *compressão*, e a compressão é o que mata.
-4. **Paredes e grades:** colisão círculo × AABB das células sólidas.
-5. **Pressão:** densidade local (média 3×3 ponderada, em pessoas/m²). Acima de `dangerDensity ≈ 5,2 p/m²` acumula `stress`. Com `stress > 1,6` a pessoa **cai** e o contador sobe.
-6. **Efeito cascata:** quem cai vira um corpo no chão (obstáculo com raio maior e peso 1,6 na densidade). Isso piora a região, como acontece em tragédias reais.
+A cada passo (1/30 s):
+1. **Vontade:** direção do campo × velocidade desejada × velocidade do piso.
+2. **Plateia:** quem chegou avança rumo ao palco enquanto a densidade estiver abaixo de `standDensity × euforia`. Na arquibancada, fica sentado.
+3. **Diagrama fundamental:** a velocidade cai com a densidade à frente. Pressa (evacuação), euforia e pânico aumentam o quanto a pessoa empurra.
+4. **Empurra-empurra macio** (3 iterações) e colisão com paredes, grades e o trio.
+5. **Pressão:** acima de 5,2 p/m², acumula `stress`. Passou de 1,6, **cai**.
+6. **Cascata:** o corpo no chão vira obstáculo e ocupa mais espaço na densidade.
 
-### 4.4 Fases do evento (`level.phases`)
+### 4.4 Comportamentos novos (v0.2)
+| Comportamento | Como funciona | Parâmetros |
+|---|---|---|
+| **Ondas de euforia** | A cada 7 s de show, 2,2 s de "drop": a euforia sobe +0,4 e a plateia empurra para o palco. As pessoas pulam e levantam os braços | `surgeEvery`, `surgeLength`, `surgeBoost` |
+| **Pânico contagioso** | Cada queda assusta quem está a até 4,5 m: a pessoa foge na direção oposta e empurra mais por alguns segundos. Isso cria as ondas de choque das tragédias reais | `panicRadius`, `panicGain`, `panicDecay`, `panicPush` |
+| **Seguranças** | Mapa `calm` (0–1) com raio de 5 m. Reduz estresse, euforia e contágio; o pânico some até 7× mais rápido | `staffRadius`, `staffCalm` |
+| **Trio elétrico** | Atrator que anda por um percurso. Quem está logo à frente abre para os lados; quem está mais à frente espera; a "pipoca" se aperta em volta; o trio **para** se a frente estiver lotada | `level.parade` |
+| **Trens** | Fases `burst`: N passageiros desembarcam pelas portas em X s; o próximo trem chega mesmo se a plataforma não esvaziou | `count`, `unload`, `interval` |
+| **Câmera do perigo** | `sim.hot` guarda o ponto de maior densidade, suavizado | — |
+| **Histórico** | A cada 1 s grava pisoteados e pico de densidade para o gráfico | `sim.history` |
+
+### 4.5 Fases do evento (`level.phases`)
 | `kind` | O que acontece | Termina quando |
 |--------|----------------|----------------|
-| `enter` | Público nasce nos portões `spawn` (fila se o portão lotar) e vai para `zone` | todos entraram e ≥ 92% estão na zona, ou `maxTime` |
-| `hold` | Show: a plateia empurra rumo ao palco (`excitement`) | `duration` |
+| `enter` | Público nasce nos portões `spawn` e vai para a `zone` | todos entraram e ≥ 92% estão na zona, ou `maxTime` |
+| `fill` | Coloca todo o público já sentado na zona (estádio) | imediato |
+| `hold` | Show/jogo/contagem (`show`: `concert`, `countdown`, `match`) com ondas de euforia | `duration` |
 | `move` | Todos migram para outra zona | ≥ 92% chegaram, ou `maxTime` |
-| `exit` | Evacuação por **todos** os portões, com mais pressa | todos saíram, 20 s sem ninguém sair, ou `maxTime` |
+| `follow` | O trio percorre `parade.path` e a multidão vai junto | o trio chega ao fim |
+| `burst` | Um trem desembarca `count` pessoas pelas `doors` | depois de `interval` s |
+| `exit` | Evacuação por todos os portões | todos saíram, 20 s sem ninguém sair, ou `maxTime` |
 
-### 4.5 Parâmetros (`PARAMS` em `sim.js`, sobrescrevíveis por fase em `level.params`)
-`radius, speed, relax, pushK, dangerDensity, stressToFall, stressRecover, congestionCost, standDensity, jamDensity, exitUrgency, spawnMaxDensity`.
-
-> **Regra de ouro:** toda mudança de parâmetro precisa rodar `node tests/headless.mjs`. A fase sem plano deve **falhar** e o plano de referência deve **passar**.
+> **Regra de ouro:** toda mudança de parâmetro precisa rodar `node tests/headless.mjs` (com e sem plano). A fase sem plano deve **falhar** e o plano de referência deve **passar**.
 
 ---
 
-## 5. Visual e interface
+## 5. Visual, som e interface
 
-Arquivo: `js/render.js` (Canvas 2D) e `css/style.css`.
+Arquivos: `js/render.js`, `js/audio.js`, `css/style.css`.
 
-- **Câmera fixa de cima**, mapa ajustado à tela, nítido em telas retina (`devicePixelRatio`).
-- **Camada estática** (redesenhada só quando o mapa muda): concreto com grade e confetes, sombras deslocadas para dar volume, telhados com cores por bloco, árvores, luzes do palco, portões listrados, grades pretas que se conectam.
-- **Camada dinâmica:** mapa de calor suave (`ImageData` W×H ampliada com suavização), pessoas como círculos com "cabeça" escura, cor por densidade (com calor ligado) ou camiseta aleatória (com calor desligado). Vítima = X vinho e anel vermelho que expande. A tela treme quando alguém cai.
-- **Prévia de fluxo** no planejamento: partículas com rastro em leque. As de entrada vão dos portões ao palco (gradiente azul → laranja); as de saída, brancas, vão da plateia aos portões.
-- **Selo PISOTEADOS:** branco → amarelo (dentro do limite) → vermelho (estourou). Tem animação de "pulo" a cada vítima.
-- **Banners** grandes no centro: "VOCÊ PLANEJA", "ELES CHEGAM", nome de cada fase.
-- **Mobile first:** controles por toque (Pointer Events), barra inferior com botões grandes e `safe-area-inset`.
-- Fontes: *Lilita One* (títulos, selo) e *Inter* (interface).
-
-Atalhos: `Espaço` começa ou pausa · `1/2/3` escolhem a ferramenta · `H` liga o calor · botão direito apaga.
+- **Câmera** em metros: tudo é desenhado com uma transformação (`cam.x, cam.y, cam.z`). A camada fixa é pré-renderizada a até 40 px/m (~6 Mpx no máximo).
+- **Pessoas** com nível de detalhe: de longe são pontos coloridos; de perto ganham sombra, ombros orientados pela direção do movimento, cabeça com cor de cabelo, **pés que alternam ao andar**, pulo e braços para cima no show, e anel vermelho de alerta quando estão perto de cair. Só o que está na tela é desenhado.
+- **Cores:** mapa de calor (padrão), camisetas variadas, abadás no carnaval e **mosaico** que ondula na arquibancada durante o jogo.
+- **Efeitos por evento:** fachos e poças de luz coloridas do palco (mais fortes nos "drops"), confete caindo, fogos de artifício com clarão no réveillon, trio com luzes piscando, trem chegando e partindo, viaduto semitransparente por cima da multidão.
+- **Noite:** prédios escuros com janelas acesas, postes com halo, mapa de calor brilhante (modo aditivo) e vinheta.
+- **Som (Web Audio, sem arquivos):** murmúrio que cresce com a densidade, batida do show, gritos de euforia, apito do juiz, buzina do trem, estouros de fogos. Botão 🔊.
+- **HUD:** selo PISOTEADOS (branco → amarelo → vermelho, com pulo e vibração no celular), medidor de **pressão** ao vivo, orçamento com aviso de obra ×2, banners de fase.
+- Atalhos: `Espaço` começa/pausa · `0–4` ferramentas · `H` calor · `C` câmera do perigo · `+/−` zoom · botão direito apaga.
 
 ---
 
@@ -141,47 +165,48 @@ pisoteio/
 ├── css/style.css
 ├── js/
 │   ├── sim.js          # simulação pura (World, FlowField, Simulation)
-│   ├── levels.js       # fases geradas por código
-│   ├── render.js       # Canvas 2D
-│   └── main.js         # estados, entrada, laço, HUD
-├── tests/headless.mjs  # calibração sem interface (Node 18+)
+│   ├── levels.js       # 6 fases geradas por código
+│   ├── render.js       # Canvas 2D com câmera e efeitos
+│   ├── audio.js        # som ambiente procedural
+│   └── main.js         # estados, entrada (toque/mouse), laço, HUD
+├── tests/headless.mjs  # calibração sem interface + planos de referência
 ├── docs/
 │   ├── PROJETO.md      # este documento
 │   ├── referencias/    # quadros do trailer
-│   └── mvp/            # prints do MVP
-├── CLAUDE.md           # instruções para o Claude Code
+│   └── mvp/            # prints do jogo
+├── CLAUDE.md
 └── README.md
 ```
 
-Sem build e sem dependências: ES Modules puros, servidos direto pelo GitHub Pages.
-
 ---
 
-## 7. Roteiro (pós-MVP)
+## 7. Roteiro
 
-**Próximo passo (v0.2)**
-- [ ] Editar **durante** o evento, pagando o dobro (decisões sob pressão).
-- [ ] Novas ferramentas: *segurança/orientador* (empurra o fluxo numa direção), *corredor de mão única*, *telão* (atrai público para outra área), *placa de saída*.
-- [ ] Gráfico de pisoteados × tempo na tela de resultado.
-- [ ] Replay do evento com câmera lenta nos momentos críticos.
+**v0.2 (feito)**
+- [x] Câmera com zoom, arrasto, pinça e câmera do perigo
+- [x] Pessoas animadas, efeitos de show, confete, fogos, mosaico, modo noite
+- [x] Ondas de euforia, pânico contagioso, seguranças, pisos lentos
+- [x] Obras de emergência durante o evento (custo ×2)
+- [x] Três cenários novos: estádio, carnaval, metrô
+- [x] Gráfico no resultado e som ambiente
 
 **v0.3**
-- [ ] Fase **Corrida na Pista** (quadro 04): touros/corredores atravessando, com público nas arquibancadas.
-- [ ] Fase **Estádio** (quadro 07): esvaziamento depois do jogo, por anéis e rampas.
-- [ ] Modo noite / "análise" (quadro 06): só o mapa de calor sobre o mapa escuro.
-- [ ] Editor de fases e compartilhamento por URL (mapa codificado em base64).
+- [ ] Fase **Corrida na Pista** (quadro 04), com corredores atravessando o público.
+- [ ] Ferramentas: placa de saída (puxa o fluxo), telão (atrai público), corredor de mão única.
+- [ ] Replay com câmera lenta no momento da primeira queda.
+- [ ] Grupos de amigos que tentam ficar juntos (e voltam para buscar quem se perdeu).
+- [ ] Editor de fases e compartilhamento por URL.
 
 **v1.0**
-- [ ] WebGL/instancing para 5.000+ pessoas.
-- [ ] Simulação num Web Worker.
-- [ ] Trilha e efeitos sonoros (murmúrio da multidão que sobe com a densidade).
+- [ ] WebGL/instancing para 5.000+ pessoas; simulação num Web Worker.
+- [ ] Clima (chuva acelera a saída), dia → noite durante o evento.
 - [ ] Ranking por fase (menos pisoteados com menor custo).
 
 ---
 
 ## 8. Cuidados com o tema
 
-Pisoteamentos são tragédias reais (Love Parade 2010, Itaewon 2022). O jogo trata o tema como **engenharia de segurança**: entender densidade, gargalos e rotas de fuga. Por isso:
-- não há sangue nem corpos detalhados, só marcadores abstratos;
-- a tela de "Tragédia" orienta a replanejar, sem comemorar o fracasso;
-- a dica de cada fase ensina um princípio real de gestão de multidões (setorização, portões suficientes, fluxos que não se cruzam, mão única).
+Pisoteamentos são tragédias reais (Love Parade 2010, Itaewon 2022). O jogo trata o tema como **engenharia de segurança**: entender densidade, gargalos, rotas de fuga e o papel da equipe. Por isso:
+- não há sangue nem corpos detalhados, só marcadores abstratos; o som não tem gritos de dor;
+- a tela de "Tragédia" mostra o gráfico e orienta a replanejar, sem comemorar o fracasso;
+- a dica de cada fase ensina um princípio real de gestão de multidões (setorização, portões suficientes, fluxos que não se cruzam, mão única, equipe nos pontos de convergência).

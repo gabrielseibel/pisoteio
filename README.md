@@ -6,22 +6,34 @@ Simulador de gestão de multidões que roda no navegador. Antes do evento você 
 
 ### ▶ [Jogar agora](https://gabrielseibel.github.io/pisoteio/)
 
-| Menu | Planejamento | Evento |
+| Menu | Planejamento | Show ao vivo (zoom) |
 |---|---|---|
 | ![](docs/mvp/menu.png) | ![](docs/mvp/planejamento.png) | ![](docs/mvp/simulacao.png) |
 
+| Réveillon à noite | Estádio | Carnaval (zoom no viaduto) |
+|---|---|---|
+| ![](docs/mvp/reveillon.png) | ![](docs/mvp/estadio.png) | ![](docs/mvp/carnaval-zoom.png) |
+
 ## Como jogar
-1. Escolha uma fase e leia o briefing (número de pessoas e limite de pisoteados).
-2. **Planeje:** toque e arraste no mapa para colocar **grades** (R$ 4/m) ou abrir **portões** no muro (R$ 45/m). Os rastros coloridos mostram por onde o público vai passar.
-3. Aperte **▶ Começar** e acompanhe o **mapa de calor**: azul é tranquilo, vermelho é perigo.
-4. Termine o evento com até o limite de pisoteados para ganhar de 1 a 3 estrelas.
+1. Escolha um evento e leia o briefing (número de pessoas e limite de pisoteados).
+2. **Planeje:** toque e arraste no mapa para colocar **grades**, abrir **portões** e passagens fechadas (listras amarelas e pretas) e posicionar **seguranças**, que acalmam quem está por perto. Os rastros coloridos mostram por onde o público vai passar.
+3. Aperte **▶ Começar**. Durante o evento você ainda pode fazer obras de emergência, pagando o dobro.
+4. Acompanhe o **mapa de calor** e o medidor de **pressão**. Pinça ou roda do mouse dá zoom; 🎥 segue o ponto mais apertado.
+5. Termine com até o limite de pisoteados para ganhar de 1 a 3 estrelas. O resultado mostra um gráfico de quando a pressão subiu.
 
-Dicas: setorize a plateia com grades, garanta portões suficientes e evite fluxos que se cruzam.
+## O que a simulação faz
+- Rotas que desviam de aglomeração, empurra-empurra e quedas quando a densidade passa de ~5 pessoas/m².
+- **Ondas de euforia** nos "drops" do show, **pânico contagioso** depois de cada queda, **seguranças** que acalmam.
+- Arquibancadas, escadas e grama deixam as pessoas mais lentas.
+- Trio elétrico que anda e arrasta a multidão; trens que chegam em sequência.
 
-## Fases do MVP
-1. **Show no Pátio**: dois portões estreitos e 900 pessoas.
-2. **Festival de Dois Palcos**: o público inteiro atravessa o campo no meio do evento.
-3. **Praça da Cidade**: as ruas convergem para o palco central, sem poder abrir portões.
+## Fases
+1. 🎤 **Show no Pátio**: dois portões estreitos e 900 pessoas.
+2. 🎪 **Festival de Dois Palcos**: o público inteiro atravessa o campo.
+3. 🎆 **Réveillon na Praça**: oito ruas convergindo, à noite, com fogos.
+4. ⚽ **Clássico no Estádio**: mosaico da torcida e saída pelos vomitórios.
+5. 🎺 **Bloco de Carnaval**: o trio desce a avenida e passa sob um viaduto.
+6. 🚇 **Estação na Hora do Rush**: cinco trens lotados em sequência.
 
 ## Rodar localmente
 ```bash

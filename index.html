@@ -18,8 +18,8 @@
       <h1 class="logo">PISOTEIO</h1>
       <p class="tagline">Você planeja. Eles chegam.</p>
       <div id="level-list" class="level-list"></div>
-      <p class="how">Coloque <b>grades</b> e abra <b>portões</b> antes do evento.<br>Depois aperte <b>Começar</b> e torça. Cada pessoa pisoteada conta.</p>
-      <p class="credit">MVP inspirado num trailer conceitual de @bonkbureau.</p>
+      <p class="how">Coloque <b>grades</b>, abra <b>portões</b> e posicione <b>seguranças</b> antes do evento.<br>Durante o evento você ainda pode construir, pagando o dobro.<br>Arraste para mover a câmera · pinça ou roda do mouse para zoom.</p>
+      <p class="credit">Inspirado num trailer conceitual de @bonkbureau · v0.2</p>
     </div>
   </section>
 
@@ -31,7 +31,8 @@
         <div id="level-name" class="level-name"></div>
         <div id="phase" class="phase">Planejamento</div>
       </div>
-      <div class="money" title="Orçamento"><span id="money">0</span></div>
+      <button id="btn-sound" class="icon-btn" title="Som">🔊</button>
+      <div class="money" title="Orçamento"><span id="money">0</span><small id="money-mult" class="hidden">obra ×2</small></div>
     </header>
 
     <div id="stage-wrap" class="stage-wrap">
@@ -39,13 +40,22 @@
       <div id="badge" class="badge"><span class="skull">☠</span> PISOTEADOS <b id="trampled">0</b></div>
       <div id="banner" class="banner"></div>
       <div id="limit" class="limit"></div>
+      <div id="risk" class="risk hidden"><span>Pressão</span><div class="risk-bar"><i id="risk-fill"></i></div><b id="risk-val">0</b></div>
+      <div class="cam-ctrl">
+        <button id="z-in" title="Aproximar">+</button>
+        <button id="z-out" title="Afastar">−</button>
+        <button id="z-fit" title="Ver tudo">⤢</button>
+        <button id="z-follow" title="Câmera do perigo: segue o ponto mais apertado">🎥</button>
+      </div>
     </div>
 
     <footer class="toolbar">
-      <div id="plan-tools" class="group">
+      <div id="plan-tools" class="group tools">
+        <button class="tool" data-tool="pan"><span class="t-ico">✋</span>Mover<small>câmera</small></button>
         <button class="tool active" data-tool="fence"><span class="t-ico fence-ico"></span>Grade<small id="cost-fence"></small></button>
         <button class="tool" data-tool="gate"><span class="t-ico gate-ico"></span>Portão<small id="cost-gate"></small></button>
-        <button class="tool" data-tool="erase"><span class="t-ico">✕</span>Apagar</button>
+        <button class="tool" data-tool="staff"><span class="t-ico staff-ico"></span>Segurança<small id="cost-staff"></small></button>
+        <button class="tool" data-tool="erase"><span class="t-ico">✕</span>Apagar<small>reembolsa</small></button>
       </div>
       <div id="run-tools" class="group hidden">
         <button class="speed active" data-speed="1">1×</button>

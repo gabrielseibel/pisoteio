@@ -10,6 +10,11 @@ export const TILE = {
   STAGE: 3,     // palco
   FENCE: 4,     // grade colocada pelo jogador
   GATE: 5,      // portão (entrada e/ou saída)
+  SEATS: 6,     // arquibancada: dá para andar, mas devagar
+  GRASS: 7,     // gramado/parque: um pouco mais lento
+  PITCH: 8,     // campo de futebol (isolado)
+  TRACK: 9,     // trilho do metrô (isolado)
+  STAIRS: 10,   // escada: mais lenta
 };
 
 export const PARAMS = {
@@ -28,13 +33,26 @@ export const PARAMS = {
   jamDensity: 4.6,       // densidade em que a pessoa quase para de andar
   exitUrgency: 1.6,      // na evacuação as pessoas empurram mais
   spawnMaxDensity: 2.6,  // não entra mais gente se o portão estiver lotado
+  panicRadius: 4.5,      // raio (m) em que uma queda assusta quem está perto
+  panicGain: 0.6,        // susto causado por uma queda
+  panicDecay: 0.22,      // o pânico some aos poucos (por segundo)
+  panicPush: 0.35,       // quanto o pânico aumenta o empurra-empurra
+  staffRadius: 5,        // alcance de um segurança/orientador (m)
+  staffCalm: 0.45,       // redução do estresse e da euforia perto da equipe
+  surgeEvery: 7,         // a cada X s de show, um "drop" empurra a plateia ao palco
+  surgeLength: 2.2,
+  surgeBoost: 0.4,
 };
 
 const SQ2 = Math.SQRT2;
 
 export function isSolid(t) {
-  return t === TILE.WALL || t === TILE.BUILDING || t === TILE.STAGE || t === TILE.FENCE;
+  return t === TILE.WALL || t === TILE.BUILDING || t === TILE.STAGE || t === TILE.FENCE ||
+    t === TILE.PITCH || t === TILE.TRACK;
 }
+// custo de rota e velocidade em cada tipo de piso
+export function tileCost(t) { return t === TILE.SEATS ? 2.4 : t === TILE.STAIRS ? 1.6 : t === TILE.GRASS ? 1.15 : 1; }
+export function tileSpeed(t) { return t === TILE.SEATS ? 0.42 : t === TILE.STAIRS ? 0.62 : t === TILE.GRASS ? 0.85 : 1; }
 
 // ---------------- Mapa ----------------
 export class World {
@@ -46,32 +64,46 @@ export class World {
     this.tiles = new Uint8Array(level.tiles);
     this.zone = new Int8Array(level.zone);          // -1 = sem zona; 0,1... = plateias
     this.spawn = new Uint8Array(level.spawn);       // 1 = portão por onde o público entra
-    this.placed = new Uint8Array(n);                // 1 = colocado pelo jogador
+    this.placed = new Uint8Array(n);                // 1 = colocado pelo jogador (2 = grade sobre grama, 3 = passagem aberta)
+    this.openable = new Uint8Array(level.openable || n); // paredes internas que o jogador pode abrir
+    this.staff = [];                                // seguranças/orientadores {x,y}
+    this.calm = new Float32Array(n);                // 0..1, influência da equipe
     this.p = { ...PARAMS, ...(level.params || {}) };
     this.money = level.budget;
+    this.costMult = 1;                              // 2× durante o evento (obra de emergência)
+    this.version = 0;                               // muda a cada edição
   }
 
   idx(x, y) { return y * this.W + x; }
   inside(x, y) { return x >= 0 && y >= 0 && x < this.W && y < this.H; }
   tileAt(x, y) { return this.inside(x, y) ? this.tiles[this.idx(x, y)] : TILE.WALL; }
   isBorder(x, y) { return x === 0 || y === 0 || x === this.W - 1 || y === this.H - 1; }
+  cost(tool) { return Math.round((this.level.costs[tool] ?? 0) * this.costMult); }
+  staffAt(x, y) { return this.staff.findIndex(s => s.x === x && s.y === y); }
 
   // ---------- Ferramentas do jogador ----------
   canPlace(tool, x, y) {
     if (!this.inside(x, y)) return false;
     const i = this.idx(x, y);
     const t = this.tiles[i];
-    if (tool === 'fence') return t === TILE.FLOOR && this.money >= this.level.costs.fence;
+    const lv = this.level;
+    if (lv.tools && !lv.tools.includes(tool) && tool !== 'erase') return false;
+    if (tool === 'fence') return (t === TILE.FLOOR || t === TILE.GRASS) && this.placed[i] !== 3 && this.staffAt(x, y) < 0 && this.money >= this.cost('fence');
+    if (tool === 'staff') {
+      return !isSolid(t) && t !== TILE.GATE && this.staffAt(x, y) < 0 && this.money >= this.cost('staff') &&
+        this.staff.every(s => Math.abs(s.x - x) + Math.abs(s.y - y) > 2);
+    }
     if (tool === 'gate') {
+      if (this.money < this.cost('gate')) return false;
+      if (this.openable[i] && t === TILE.BUILDING) return true; // abrir passagem interna
       if (!(t === TILE.WALL && this.isBorder(x, y))) return false;
-      if (this.money < this.level.costs.gate) return false;
-      // precisa ter chão do lado de dentro
+      if (lv.noGates) return false;
       const nx = x === 0 ? 1 : x === this.W - 1 ? this.W - 2 : x;
       const ny = y === 0 ? 1 : y === this.H - 1 ? this.H - 2 : y;
       const inner = this.tileAt(nx, ny);
-      return inner === TILE.FLOOR || inner === TILE.GATE;
+      return inner === TILE.FLOOR || inner === TILE.GATE || inner === TILE.GRASS;
     }
-    if (tool === 'erase') return this.placed[i] === 1;
+    if (tool === 'erase') return this.placed[i] > 0 || this.staffAt(x, y) >= 0;
     return false;
   }
 
@@ -79,16 +111,45 @@ export class World {
     if (!this.canPlace(tool, x, y)) return false;
     const i = this.idx(x, y);
     if (tool === 'fence') {
-      this.tiles[i] = TILE.FENCE; this.placed[i] = 1; this.money -= this.level.costs.fence;
+      this.placed[i] = this.tiles[i] === TILE.GRASS ? 2 : 1; // lembra o piso original
+      this.tiles[i] = TILE.FENCE; this.money -= this.cost('fence');
     } else if (tool === 'gate') {
-      this.tiles[i] = TILE.GATE; this.placed[i] = 1; this.money -= this.level.costs.gate;
+      if (this.openable[i] && this.tiles[i] === TILE.BUILDING) {
+        this.tiles[i] = this.level.openTo ?? TILE.FLOOR; this.placed[i] = 3;
+      } else { this.tiles[i] = TILE.GATE; this.placed[i] = 1; }
+      this.money -= this.cost('gate');
+    } else if (tool === 'staff') {
+      this.staff.push({ x, y }); this.money -= this.cost('staff'); this.updateCalm();
     } else if (tool === 'erase') {
-      const t = this.tiles[i];
-      if (t === TILE.FENCE) { this.tiles[i] = TILE.FLOOR; this.money += this.level.costs.fence; }
-      if (t === TILE.GATE) { this.tiles[i] = TILE.WALL; this.money += this.level.costs.gate; }
-      this.placed[i] = 0;
+      const si = this.staffAt(x, y);
+      if (si >= 0) { // reembolso só do valor-base
+        this.staff.splice(si, 1); this.money += this.level.costs.staff; this.updateCalm();
+      } else {
+        const t = this.tiles[i];
+        if (t === TILE.FENCE) { this.tiles[i] = this.placed[i] === 2 ? TILE.GRASS : TILE.FLOOR; this.money += this.level.costs.fence; }
+        if (t === TILE.GATE) { this.tiles[i] = TILE.WALL; this.money += this.level.costs.gate; }
+        else if (this.placed[i] === 3) { this.tiles[i] = TILE.BUILDING; this.money += this.level.costs.gate; }
+        this.placed[i] = 0;
+      }
     }
+    this.version++;
     return true;
+  }
+
+  updateCalm() {
+    const { W, H } = this;
+    this.calm.fill(0);
+    const R = this.p.staffRadius;
+    for (const s of this.staff) {
+      for (let y = Math.max(0, s.y - R); y <= Math.min(H - 1, s.y + R); y++) {
+        for (let x = Math.max(0, s.x - R); x <= Math.min(W - 1, s.x + R); x++) {
+          const d = Math.hypot(x - s.x, y - s.y);
+          if (d > R) continue;
+          const i = y * W + x;
+          this.calm[i] = Math.max(this.calm[i], 1 - (d / R) * 0.6);
+        }
+      }
+    }
   }
 
   cellsWhere(pred) {
@@ -112,7 +173,6 @@ export class World {
 }
 
 // ---------------- Campo de fluxo (Dijkstra) ----------------
-// Para cada célula: distância até o alvo e direção para o vizinho mais próximo do alvo.
 export class FlowField {
   constructor(world) {
     this.w = world;
@@ -140,13 +200,12 @@ export class FlowField {
         const j = ny * W + nx;
         if (isSolid(tiles[j])) continue;
         if (ox && oy && (isSolid(tiles[y * W + nx]) || isSolid(tiles[ny * W + x]))) continue;
-        let c = ox && oy ? SQ2 : 1;
+        let c = (ox && oy ? SQ2 : 1) * tileCost(tiles[j]);
         if (density) c *= 1 + congestion * density[j];
         const nd = d + c;
         if (nd < dist[j]) { dist[j] = nd; heap.push(j, nd); }
       }
     }
-    // direções
     for (let i = 0; i < dist.length; i++) {
       this.dx[i] = 0; this.dy[i] = 0;
       if (!isFinite(dist[i]) || dist[i] === 0) continue;
@@ -166,7 +225,6 @@ export class FlowField {
     }
   }
 
-  // direção suavizada (interpolação bilinear entre células vizinhas)
   sample(px, py, out) {
     const { W, H } = this.w;
     const fx = px - 0.5, fy = py - 0.5;
@@ -197,7 +255,7 @@ class MinHeap {
   constructor(cap) { this.k = new Int32Array(cap); this.v = new Float32Array(cap); this.size = 0; }
   clear() { this.size = 0; }
   push(key, val) {
-    if (this.size >= this.k.length) { // cresce se precisar
+    if (this.size >= this.k.length) {
       const k2 = new Int32Array(this.k.length * 2); k2.set(this.k); this.k = k2;
       const v2 = new Float32Array(this.v.length * 2); v2.set(this.v); this.v = v2;
     }
@@ -247,12 +305,18 @@ export class Simulation {
     this.vx = new Float32Array(N); this.vy = new Float32Array(N);
     this.v0 = new Float32Array(N);
     this.stress = new Float32Array(N);
+    this.panic = new Float32Array(N);
+    this.fx = new Float32Array(N); this.fy = new Float32Array(N); // direção de fuga do susto
     this.state = new Uint8Array(N).fill(STATE.GONE);
-    this.hue = new Float32Array(N);
+    this.shirt = new Uint8Array(N);       // índice de cor da camiseta
+    this.heading = new Float32Array(N);   // para onde a pessoa está virada (rad)
+    this.walk = new Float32Array(N);      // fase do passo (animação)
     this.localD = new Float32Array(N);
     this.spawned = 0; this.exited = 0; this.trampled = 0;
-    this.events = [];   // {x,y,t} para efeitos visuais de queda
+    this.events = [];   // quedas {x,y,t}
     this.time = 0;
+    this.history = [];  // {t, trampled, peak, active} a cada 1 s (gráfico final)
+    this.histTimer = 0; this.windowPeak = 0;
 
     const n = world.W * world.H;
     this.count = new Float32Array(n);
@@ -260,16 +324,31 @@ export class Simulation {
     this.head = new Int32Array(n);
     this.next = new Int32Array(N);
     this.peakDensity = 0;
+    this.hot = { x: world.W / 2, y: world.H / 2, d: 0 }; // ponto mais apertado (câmera)
 
     this.field = new FlowField(world);
     this.stageField = new FlowField(world);
-    this.stageField.compute(world.stageEdgeCells());
+    this.stageCells = () => {
+      const c = world.stageEdgeCells();
+      if (c.length || !this.attractor) return c;
+      return this.ringCells(); // sem palco: o "palco" é o trio elétrico
+    };
     this.spawnCells = world.spawnCells();
-    this.spawnAcc = new Float32Array(this.spawnCells.length);
+    this.spawnAcc = new Float32Array(Math.max(1, this.spawnCells.length));
+    this.worldVersion = world.version;
 
+    // trio elétrico / carro de som (atrator móvel)
+    this.attractor = null;
+    if (lv.parade) {
+      const [x, y] = lv.parade.path[0];
+      this.attractor = { x, y, dirX: 0, dirY: 1, seg: 0, r: lv.parade.radius ?? 2.2 };
+    }
+
+    this.stageField.compute(this.stageCells());
     this.phases = lv.phases;
     this.phaseIdx = -1;
     this.done = false;
+    this.surge = 0;
     this.nextPhase();
   }
 
@@ -279,38 +358,84 @@ export class Simulation {
   nextPhase() {
     this.phaseIdx++;
     this.phaseTime = 0;
+    this.stallTime = 0; this.lastExited = this.exited;
     if (this.phaseIdx >= this.phases.length) { this.done = true; return; }
+    const ph = this.phase;
+    if (ph.kind === 'fill') this.fillZone(ph.zone, ph.count ?? this.N);
+    if (ph.kind === 'burst') { this.burstLeft = ph.count; this.burstAcc = 0; }
     this.refreshField();
     this.fieldTimer = 0;
   }
 
+  isExitLike(ph = this.phase) { return ph && (ph.kind === 'exit' || ph.kind === 'burst'); }
+
   targetCells() {
     const ph = this.phase;
-    if (ph.kind === 'exit') return this.w.gateCells();
+    if (this.isExitLike(ph)) return this.w.gateCells();
+    if (ph.kind === 'follow') return this.ringCells();
     return this.w.zoneCells(ph.zone);
+  }
+
+  // ponto que a multidão persegue: logo atrás do trio (a "pipoca" vai atrás)
+  followPoint() {
+    const a = this.attractor;
+    return [a.x - a.dirX * (a.r + 1), a.y - a.dirY * (a.r + 1)];
+  }
+
+  ringCells() {
+    const a = this.attractor, w = this.w, out = [];
+    const [cx, cy] = this.followPoint();
+    const R = 9;
+    for (let y = Math.max(0, (cy - R) | 0); y <= Math.min(w.H - 1, (cy + R) | 0); y++) {
+      for (let x = Math.max(0, (cx - R) | 0); x <= Math.min(w.W - 1, (cx + R) | 0); x++) {
+        const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        const da = Math.hypot(x + 0.5 - a.x, y + 0.5 - a.y);
+        if (d <= R && da > a.r + 0.6 && !isSolid(w.tiles[y * w.W + x])) out.push(y * w.W + x);
+      }
+    }
+    if (!out.length) out.push(((a.y | 0) * w.W) + (a.x | 0));
+    return out;
   }
 
   refreshField() {
     this.field.compute(this.targetCells(), this.density, this.p.congestionCost);
   }
 
-  spawnOne(cellIdx) {
-    {
-      if (this.spawned >= this.N) return false;
-      const i = this.spawned;
-      const W = this.w.W;
-      const cx = cellIdx % W, cy = (cellIdx / W) | 0;
-      this.x[i] = cx + 0.2 + this.rng() * 0.6;
-      this.y[i] = cy + 0.2 + this.rng() * 0.6;
-      this.vx[i] = 0; this.vy[i] = 0;
-      this.v0[i] = this.p.speed + (this.rng() * 2 - 1) * this.p.speedVar;
-      this.stress[i] = 0;
-      this.state[i] = STATE.ACTIVE;
-      this.hue[i] = this.rng() * 360;
-      this.spawned++;
-      return true;
+  spawnAt(cellIdx) {
+    if (this.spawned >= this.N) return false;
+    const i = this.spawned;
+    const W = this.w.W;
+    const cx = cellIdx % W, cy = (cellIdx / W) | 0;
+    this.x[i] = cx + 0.2 + this.rng() * 0.6;
+    this.y[i] = cy + 0.2 + this.rng() * 0.6;
+    this.vx[i] = 0; this.vy[i] = 0;
+    this.v0[i] = this.p.speed + (this.rng() * 2 - 1) * this.p.speedVar;
+    this.stress[i] = 0; this.panic[i] = 0;
+    this.state[i] = STATE.ACTIVE;
+    this.shirt[i] = (this.rng() * 255) | 0;
+    this.heading[i] = this.rng() * 6.283;
+    this.walk[i] = this.rng() * 6.283;
+    this.spawned++;
+    return true;
+  }
+
+  fillZone(z, count) {
+    const cells = this.w.zoneCells(z);
+    for (let k = 0; k < count && this.spawned < this.N; k++) {
+      this.spawnAt(cells[(this.rng() * cells.length) | 0]);
     }
-    return false;
+  }
+
+  // ondas de euforia durante o show
+  excitementNow(ph) {
+    let e = ph.excitement ?? 1;
+    if (ph.kind === 'hold' || ph.kind === 'follow') {
+      const per = this.p.surgeEvery;
+      const t = this.phaseTime % per;
+      this.surge = t > per - this.p.surgeLength ? 1 : 0;
+      e += this.surge * this.p.surgeBoost;
+    } else this.surge = 0;
+    return e;
   }
 
   step(dt) {
@@ -320,70 +445,142 @@ export class Simulation {
     this.time += dt; this.phaseTime += dt; this.fieldTimer += dt;
     const ph = this.phase;
 
+    // edição em tempo real: o jogador mexeu no mapa
+    if (w.version !== this.worldVersion) {
+      this.worldVersion = w.version;
+      this.stageField.compute(this.stageCells());
+      this.spawnCells = w.spawnCells();
+      if (this.spawnAcc.length < this.spawnCells.length) {
+        const a = new Float32Array(this.spawnCells.length); a.set(this.spawnAcc); this.spawnAcc = a;
+      }
+      this.fieldTimer = p.fieldRefresh; // recalcula já
+    }
+
+    // ---- trio elétrico anda pelo percurso
+    if (ph.kind === 'follow' && this.attractor) this.moveAttractor(dt);
+
     // ---- entrada do público
-    if (ph.kind === 'enter' && this.spawned < N) {
-      const rate = (this.w.level.spawnRate || 6) / Math.max(1, this.spawnCells.length / 2);
+    if (ph.kind === 'enter' && this.spawned < N && this.spawnCells.length) {
+      const rate = (w.level.spawnRate || 6) / Math.max(1, this.spawnCells.length / 2);
       for (let s = 0; s < this.spawnCells.length; s++) {
         this.spawnAcc[s] += rate * dt;
         const c = this.spawnCells[s];
         while (this.spawnAcc[s] >= 1 && this.spawned < N) {
           if (this.density[c] > p.spawnMaxDensity) { this.spawnAcc[s] = Math.min(this.spawnAcc[s], 2); break; }
           this.spawnAcc[s] -= 1;
-          this.spawnOne(c);
+          this.spawnAt(c);
         }
       }
     }
+    // ---- trem chegou: desembarque pelas portas
+    if (ph.kind === 'burst' && this.burstLeft > 0) {
+      const doors = w.level.doors;
+      this.burstAcc += (ph.count / (ph.unload || 4)) * dt;
+      while (this.burstAcc >= 1 && this.burstLeft > 0 && this.spawned < N) {
+        this.burstAcc -= 1; this.burstLeft--;
+        this.spawnAt(doors[(this.rng() * doors.length) | 0]);
+      }
+    }
 
-    // ---- grade espacial + densidade
     this.buildGrid();
-
-    if (this.fieldTimer >= p.fieldRefresh) { this.fieldTimer = 0; this.refreshField(); }
+    const fieldEvery = ph.kind === 'follow' ? 0.5 : p.fieldRefresh;
+    if (this.fieldTimer >= fieldEvery) { this.fieldTimer = 0; this.refreshField(); }
 
     // ---- vontade de cada pessoa
     const dir = [0, 0];
     const relax = Math.min(1, dt / p.relax);
-    const isExit = ph.kind === 'exit';
+    const isExit = this.isExitLike(ph);
     const zoneId = ph.zone;
-    const excitement = ph.excitement ?? 1;
+    const excitement = this.excitementNow(ph);
+    const a = this.attractor;
     for (let i = 0; i < N; i++) {
       if (this.state[i] !== STATE.ACTIVE) continue;
       const cx = clampI(this.x[i] | 0, 0, W - 1), cy = clampI(this.y[i] | 0, 0, H - 1);
       const ci = cy * W + cx;
       const d = this.density[ci];
-      this.localD[i] = d;
-      let tx = 0, ty = 0, sp = this.v0[i];
-      if (!isExit && w.zone[ci] === zoneId) {
-        // já está na plateia: avança rumo ao palco enquanto houver espaço
-        const stand = p.standDensity * excitement;
-        if (d < stand) {
+      const calm = w.calm[ci] * p.staffCalm;
+      const exc = 1 + (excitement - 1) * (1 - calm);
+      let tx = 0, ty = 0, sp = this.v0[i] * tileSpeed(w.tiles[ci]);
+      let stopped = false;
+      if (ph.kind === 'follow' && a) {
+        const dxa = this.x[i] - a.x, dya = this.y[i] - a.y;
+        const da = Math.hypot(dxa, dya);
+        const ahead = dxa * a.dirX + dya * a.dirY;
+        const trioV = w.level.parade.speed;
+        if (ahead > a.r * 0.6 && da < a.r + 5) {
+          // logo na frente do caminhão: anda à frente e abre para os lados
+          const side = dxa * -a.dirY + dya * a.dirX >= 0 ? 1 : -1;
+          tx = a.dirX + -a.dirY * side * 0.9; ty = a.dirY + a.dirX * side * 0.9;
+          const l = Math.hypot(tx, ty); tx /= l; ty /= l;
+        } else if (ahead > 0 && da >= a.r + 5) {
+          // mais à frente: o trio vem até ela, vai andando devagar no sentido do desfile
+          tx = a.dirX; ty = a.dirY; sp = Math.min(sp, trioV * 1.1);
+        } else if (da < a.r + 9) {
+          // em volta do trio (pipoca): chega mais perto se houver espaço
+          if (da > a.r + 1 && d < p.standDensity * exc) { tx = -dxa / da; ty = -dya / da; sp *= 0.6 * exc; }
+          else { tx = a.dirX; ty = a.dirY; sp = Math.min(sp, trioV * 1.05); }
+        } else {
+          this.field.sample(this.x[i], this.y[i], dir); tx = dir[0]; ty = dir[1];
+          if (d > 2.5) sp = Math.min(sp, trioV * 1.2 + 0.2); // no embalo, sem forçar
+        }
+      } else if (!isExit && w.zone[ci] === zoneId && (ph.kind === 'hold' || ph.kind === 'enter' || ph.kind === 'move')) {
+        const stand = p.standDensity * exc;
+        if (w.tiles[ci] === TILE.SEATS) { stopped = true; sp = 0; } // sentado na arquibancada
+        else if (d < stand) {
           this.stageField.sample(this.x[i], this.y[i], dir);
-          tx = dir[0]; ty = dir[1]; sp *= 0.4 * excitement;
-        } else { sp = 0; }
+          tx = dir[0]; ty = dir[1]; sp *= 0.4 * exc;
+        } else { stopped = true; sp = 0; }
       } else {
         this.field.sample(this.x[i], this.y[i], dir);
         tx = dir[0]; ty = dir[1];
-        if (isExit) sp *= 1.15; // pressa para sair
+        if (isExit) sp *= 1.15;
       }
-      // diagrama fundamental: quanto mais gente na frente, mais devagar.
-      // "urgency" alto (pressa, euforia) faz a pessoa empurrar mesmo no aperto.
-      const ahead = this.densityAt(this.x[i] + tx * 0.8, this.y[i] + ty * 0.8);
-      const urg = isExit ? p.exitUrgency : 1 + (excitement - 1) * 0.5;
-      const jam = p.jamDensity * urg;
-      sp *= Math.max(0.08, 1 - ahead / jam);
-      // ruído leve
+      // diagrama fundamental: mais gente à frente, mais devagar
+      if (!stopped) {
+        const ahead = this.densityAt(this.x[i] + tx * 0.8, this.y[i] + ty * 0.8);
+        const urg = (isExit ? p.exitUrgency : 1 + (exc - 1) * 0.5) + this.panic[i] * p.panicPush;
+        sp *= Math.max(0.08, 1 - ahead / (p.jamDensity * urg));
+      }
+      // pânico: corre para longe do ponto do susto
+      const pn = this.panic[i];
+      if (pn > 0.05) {
+        tx += this.fx[i] * pn * 1.2; ty += this.fy[i] * pn * 1.2;
+        const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+        sp = Math.max(sp, this.v0[i] * pn * 0.9);
+        this.panic[i] = Math.max(0, pn - p.panicDecay * (1 + calm * 6) * dt);
+      }
       tx += (this.rng() - 0.5) * 0.15; ty += (this.rng() - 0.5) * 0.15;
       this.vx[i] += (tx * sp - this.vx[i]) * relax;
       this.vy[i] += (ty * sp - this.vy[i]) * relax;
       this.x[i] += this.vx[i] * dt;
       this.y[i] += this.vy[i] * dt;
+      // animação: direção e passada
+      const v2 = this.vx[i] * this.vx[i] + this.vy[i] * this.vy[i];
+      if (v2 > 0.02) {
+        const target = Math.atan2(this.vy[i], this.vx[i]);
+        let dh = target - this.heading[i];
+        dh -= Math.round(dh / 6.283185) * 6.283185;
+        this.heading[i] += dh * Math.min(1, dt * 8);
+      } else if ((ph.kind === 'hold' || ph.kind === 'follow') && this.stageField.dist[ci] < 40) {
+        // parado no show: vira para o palco
+        this.stageField.sample(this.x[i], this.y[i], dir);
+        if (dir[0] || dir[1]) {
+          let dh = Math.atan2(dir[1], dir[0]) - this.heading[i];
+          dh -= Math.round(dh / 6.283185) * 6.283185;
+          this.heading[i] += dh * Math.min(1, dt * 3);
+        }
+      }
+      this.walk[i] += Math.sqrt(v2) * dt * 9;
     }
 
-    // ---- empurra-empurra (dinâmica baseada em posição, "macia")
+    // ---- empurra-empurra
     for (let it = 0; it < 3; it++) { this.buildGrid(false); this.resolveContacts(); }
+    if (a && ph.kind === 'follow') this.resolveAttractor();
     this.resolveWalls();
     this.buildGrid();
 
     // ---- pressão, quedas e saídas
+    let hotD = 0, hx = 0, hy = 0;
     for (let i = 0; i < N; i++) {
       if (this.state[i] !== STATE.ACTIVE) continue;
       const cx = clampI(this.x[i] | 0, 0, W - 1), cy = clampI(this.y[i] | 0, 0, H - 1);
@@ -391,20 +588,64 @@ export class Simulation {
       const d = this.densityAt(this.x[i], this.y[i]);
       this.localD[i] = d;
       if (d > this.peakDensity) this.peakDensity = d;
-      if (d > p.dangerDensity) this.stress[i] += (d - p.dangerDensity) * dt;
+      if (d > this.windowPeak) this.windowPeak = d;
+      if (d > hotD) { hotD = d; hx = this.x[i]; hy = this.y[i]; }
+      const calm = w.calm[ci] * p.staffCalm;
+      if (d > p.dangerDensity) this.stress[i] += (d - p.dangerDensity) * dt * (1 - calm);
       else this.stress[i] = Math.max(0, this.stress[i] - p.stressRecover * dt);
       if (this.stress[i] > p.stressToFall) {
-        this.state[i] = STATE.FALLEN; this.vx[i] = 0; this.vy[i] = 0;
-        this.trampled++;
-        this.events.push({ x: this.x[i], y: this.y[i], t: this.time });
+        this.fall(i);
         continue;
       }
       if (isExit && w.tiles[ci] === TILE.GATE) {
         this.state[i] = STATE.GONE; this.exited++;
       }
     }
+    // ponto quente suavizado (para a câmera do perigo)
+    const k = Math.min(1, dt * 1.5);
+    if (hotD > 2.5) { this.hot.x += (hx - this.hot.x) * k; this.hot.y += (hy - this.hot.y) * k; }
+    this.hot.d = hotD;
 
-    // ---- avanço das fases
+    // ---- histórico para o gráfico
+    this.histTimer += dt;
+    if (this.histTimer >= 1) {
+      this.histTimer = 0;
+      this.history.push({ t: this.time, trampled: this.trampled, peak: this.windowPeak });
+      this.windowPeak = 0;
+    }
+
+    this.advancePhase(dt);
+  }
+
+  fall(i) {
+    const p = this.p, W = this.w.W, H = this.w.H;
+    this.state[i] = STATE.FALLEN; this.vx[i] = 0; this.vy[i] = 0;
+    this.trampled++;
+    const ex = this.x[i], ey = this.y[i];
+    this.events.push({ x: ex, y: ey, t: this.time });
+    // susto se espalha (contágio de pânico)
+    const R = p.panicRadius;
+    const x0 = Math.max(0, (ex - R) | 0), x1 = Math.min(W - 1, (ex + R) | 0);
+    const y0 = Math.max(0, (ey - R) | 0), y1 = Math.min(H - 1, (ey + R) | 0);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      let j = this.head[cy * W + cx];
+      while (j !== -1) {
+        if (this.state[j] === STATE.ACTIVE) {
+          const dx = this.x[j] - ex, dy = this.y[j] - ey;
+          const d = Math.hypot(dx, dy);
+          if (d < R && d > 1e-3) {
+            const g = p.panicGain * (1 - d / R) * (1 - this.w.calm[cy * W + cx] * 0.7);
+            if (g > this.panic[j] * 0.5) { this.fx[j] = dx / d; this.fy[j] = dy / d; }
+            this.panic[j] = Math.min(1.5, this.panic[j] + g);
+          }
+        }
+        j = this.next[j];
+      }
+    }
+  }
+
+  advancePhase(dt) {
+    const ph = this.phase, w = this.w, W = w.W, H = w.H, N = this.N;
     const act = this.active;
     if (ph.kind === 'enter' || ph.kind === 'move') {
       let inZone = 0;
@@ -416,13 +657,51 @@ export class Simulation {
       this.inZone = inZone;
       const allIn = (ph.kind === 'move' || this.spawned >= N) && inZone >= act * 0.92;
       if (allIn || this.phaseTime > (ph.maxTime || 120)) this.nextPhase();
+    } else if (ph.kind === 'fill') {
+      this.nextPhase();
     } else if (ph.kind === 'hold') {
       if (this.phaseTime >= ph.duration) this.nextPhase();
+    } else if (ph.kind === 'follow') {
+      if (this.attractor.finished || this.phaseTime > (ph.maxTime || 300)) this.nextPhase();
+    } else if (ph.kind === 'burst') {
+      if (this.burstLeft <= 0 && this.phaseTime >= (ph.interval || 15)) this.nextPhase();
     } else if (ph.kind === 'exit') {
-      // termina quando todos saíram, ou se ninguém sai há 20 s (alguém preso num canto)
       if (this.exited !== this.lastExited) { this.lastExited = this.exited; this.stallTime = 0; }
-      else if (this.exited > 0) this.stallTime = (this.stallTime || 0) + dt;
+      else if (this.exited > 0) this.stallTime += dt;
       if (act === 0 || this.stallTime > 20 || this.phaseTime > (ph.maxTime || 240)) this.nextPhase();
+    }
+  }
+
+  moveAttractor(dt) {
+    const a = this.attractor, path = this.w.level.parade.path;
+    let left = this.w.level.parade.speed * dt;
+    while (left > 0 && a.seg < path.length - 1) {
+      const [tx, ty] = path[a.seg + 1];
+      const dx = tx - a.x, dy = ty - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 1e-3) { a.seg++; continue; }
+      a.dirX = dx / d; a.dirY = dy / d;
+      // não atropela: se a frente estiver lotada, o trio espera
+      const front = this.densityAt(a.x + a.dirX * (a.r + 1), a.y + a.dirY * (a.r + 1));
+      const mult = Math.max(0, Math.min(1, 1.6 - front / 3)); // trava se a frente estiver lotada
+      const mv = Math.min(d, left * mult);
+      a.x += a.dirX * mv; a.y += a.dirY * mv;
+      if (mv < d) break;
+      a.seg++; left -= mv;
+    }
+    if (a.seg >= path.length - 1) a.finished = true;
+  }
+
+  resolveAttractor() {
+    const a = this.attractor, r = a.r + this.p.radius;
+    for (let i = 0; i < this.N; i++) {
+      if (this.state[i] !== STATE.ACTIVE) continue;
+      const dx = this.x[i] - a.x, dy = this.y[i] - a.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r * r) {
+        const d = Math.sqrt(d2) || 1e-3;
+        this.x[i] = a.x + dx / d * r; this.y[i] = a.y + dy / d * r;
+      }
     }
   }
 
@@ -436,10 +715,9 @@ export class Simulation {
       const cx = clampI(this.x[i] | 0, 0, W - 1), cy = clampI(this.y[i] | 0, 0, H - 1);
       const c = cy * W + cx;
       this.next[i] = this.head[c]; this.head[c] = i;
-      if (withDensity) this.count[c] += s === STATE.FALLEN ? 1.6 : 1; // corpo no chão ocupa mais
+      if (withDensity) this.count[c] += s === STATE.FALLEN ? 1.6 : 1;
     }
     if (!withDensity) return;
-    // suavização 3x3 → pessoas por m² (só células livres contam como área)
     const cnt = this.count, den = this.density, tiles = this.w.tiles;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       let s = 0, a = 0;
@@ -487,7 +765,7 @@ export class Simulation {
                 if (d2 < 1e-8) { dx = this.rng() - 0.5; dy = this.rng() - 0.5; d2 = dx * dx + dy * dy; }
                 const d = Math.sqrt(d2);
                 const ov = (rr - d) / d;
-                if (fallen) { // corpo no chão: tropeça e é empurrado
+                if (fallen) {
                   this.x[i] += dx * ov * 0.5; this.y[i] += dy * ov * 0.5;
                 } else {
                   this.x[i] += dx * ov * k; this.y[i] += dy * ov * k;
@@ -513,12 +791,10 @@ export class Simulation {
           if (!isSolid(w.tileAt(nx, ny))) continue;
           const qx = Math.max(nx, Math.min(this.x[i], nx + 1));
           const qy = Math.max(ny, Math.min(this.y[i], ny + 1));
-          let dx = this.x[i] - qx, dy = this.y[i] - qy;
+          const dx = this.x[i] - qx, dy = this.y[i] - qy;
           const d2 = dx * dx + dy * dy;
           if (d2 < r * r) {
-            if (d2 < 1e-10) { // dentro do bloco: empurra para o centro da célula atual
-              this.x[i] = cx + 0.5; this.y[i] = cy + 0.5; continue;
-            }
+            if (d2 < 1e-10) { this.x[i] = cx + 0.5; this.y[i] = cy + 0.5; continue; }
             const d = Math.sqrt(d2);
             this.x[i] += dx / d * (r - d); this.y[i] += dy / d * (r - d);
           }
@@ -533,7 +809,10 @@ export class Simulation {
     const lv = this.w.level;
     const t = this.trampled;
     const stars = t === 0 ? 3 : t <= Math.ceil(lv.maxTrampled / 2) ? 2 : t <= lv.maxTrampled ? 1 : 0;
-    return { trampled: t, exited: this.exited, stars, passed: stars > 0, time: this.time, peak: this.peakDensity };
+    return {
+      trampled: t, exited: this.exited, stars, passed: stars > 0, time: this.time,
+      peak: this.peakDensity, history: this.history, spent: lv.budget - this.w.money,
+    };
   }
 }
 

@@ -39,6 +39,15 @@ const LIGHTS = ['#ff4d6d', '#ffd166', '#06d6a0', '#4cc9f0', '#c77dff', '#ff8fab'
 
 const ease = (a, b, k) => a + (b - a) * k;
 
+// paleta única: calor (0..23), camisetas, abadás, mosaico
+function buildPalette() {
+  const css = [...HEAT_CSS];
+  const shirt = css.length; css.push(...SHIRTS);
+  const abada = css.length; css.push(...ABADAS);
+  const tifo = css.length; css.push('#c8102e', '#f5f5f5', '#ffd400');
+  return { css, shirt, abada, tifo };
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -55,6 +64,33 @@ export class Renderer {
     this.shake = 0;
     this.time = 0;
     this.lastPhase = -1;
+    this.palette = buildPalette();
+    const n = this.palette.css.length;
+    this.palCount = new Int32Array(n); this.palStart = new Int32Array(n); this.palFill = new Int32Array(n);
+    this.glows = new Map();
+    // qualidade: 1 = completa, 0 = econômica (sem sombras, fachos e vinheta; resolução menor)
+    this.mobile = matchMedia('(pointer: coarse)').matches;
+    this.quality = 1;
+    this.frameMs = 16;
+  }
+
+  // brilho pronto (sprite radial) — muito mais barato que criar gradientes a cada quadro
+  glow(color) {
+    let g = this.glows.get(color);
+    if (g) return g;
+    g = document.createElement('canvas'); g.width = g.height = 64;
+    const c = g.getContext('2d');
+    const grd = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, color); grd.addColorStop(0.4, hexA(color, 0.45)); grd.addColorStop(1, hexA(color, 0));
+    c.fillStyle = grd; c.fillRect(0, 0, 64, 64);
+    this.glows.set(color, g);
+    return g;
+  }
+
+  // mede o custo dos quadros e baixa a qualidade se o aparelho não acompanhar
+  trackPerf(ms) {
+    this.frameMs = this.frameMs * 0.95 + ms * 0.05;
+    if (this.quality === 1 && this.frameMs > 26) { this.quality = 0; this.resize(); }
   }
 
   // ---------------- mundo e câmera ----------------
@@ -63,13 +99,14 @@ export class Renderer {
     const { W, H } = world;
     this.heatLayer.width = W; this.heatLayer.height = H;
     this.heatImg = this.heatLayer.getContext('2d').createImageData(W, H);
-    this.S = Math.max(8, Math.min(40, Math.floor(Math.sqrt(6e6 / (W * H))))); // px por metro da camada fixa (~6 Mpx no máximo)
+    this.S = Math.max(8, Math.min(32, Math.floor(Math.sqrt((this.mobile ? 2.5e6 : 5e6) / (W * H))))); // px por metro da camada fixa
     this.staticLayer.width = W * this.S;
     this.staticLayer.height = H * this.S;
     this.night = !!world.level.night;
     this.stageLights = this.findStageLights();
     this.confetti = []; this.sparks = []; this.rockets = [];
     this.lastPhase = -1;
+    this.heatReady = false;
     this.resize();
     // abertura cinematográfica: começa perto do palco e afasta
     const f = this.fitView();
@@ -84,7 +121,8 @@ export class Renderer {
     if (!this.world) return;
     const box = this.canvas.parentElement.getBoundingClientRect();
     this.vw = Math.max(1, box.width); this.vh = Math.max(1, box.height);
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = Math.min(this.quality ? (this.mobile ? 1.5 : 2) : 1, window.devicePixelRatio || 1);
+    this.vignette = null;
     this.canvas.style.width = `${this.vw}px`;
     this.canvas.style.height = `${this.vh}px`;
     this.canvas.width = Math.floor(this.vw * this.dpr);
@@ -605,13 +643,18 @@ export class Renderer {
       if (opts.preview) this.drawPreview(c, dt);
     }
     this.drawHover(c, opts);
-    // vinheta
+    // vinheta (pré-renderizada)
     c.setTransform(1, 0, 0, 1, 0, 0);
-    if (this.night) {
-      const g = c.createRadialGradient(this.canvas.width / 2, this.canvas.height / 2, Math.min(this.canvas.width, this.canvas.height) * 0.35,
-        this.canvas.width / 2, this.canvas.height / 2, Math.max(this.canvas.width, this.canvas.height) * 0.75);
-      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,20,0.55)');
-      c.fillStyle = g; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    if (this.night && this.quality) {
+      if (!this.vignette) {
+        const v = this.vignette = document.createElement('canvas');
+        v.width = 256; v.height = 256;
+        const vc = v.getContext('2d');
+        const g = vc.createRadialGradient(128, 128, 60, 128, 128, 182);
+        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,20,0.55)');
+        vc.fillStyle = g; vc.fillRect(0, 0, 256, 256);
+      }
+      c.drawImage(this.vignette, 0, 0, this.canvas.width, this.canvas.height);
     }
   }
 
@@ -653,6 +696,9 @@ export class Renderer {
 
   drawHeat(c, sim) {
     const { W, H } = this.world;
+    this.heatTick = (this.heatTick || 0) + 1;
+    if (this.heatTick % 2 === 0 && this.heatReady) { this.blitHeat(c); return; }
+    this.heatReady = true;
     const img = this.heatImg.data;
     const danger = sim.p.dangerDensity;
     const tiles = this.world.tiles;
@@ -665,6 +711,11 @@ export class Renderer {
       img[o + 3] = Math.min(210, 60 + d * 30);
     }
     this.heatLayer.getContext('2d').putImageData(this.heatImg, 0, 0);
+    this.blitHeat(c);
+  }
+
+  blitHeat(c) {
+    const { W, H } = this.world;
     if (this.night) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.75; }
     else c.globalAlpha = 0.55;
     c.drawImage(this.heatLayer, 0, 0, W, H);
@@ -680,139 +731,188 @@ export class Renderer {
     const t = this.time;
     c.globalCompositeOperation = 'lighter';
     const surge = sim.surge ? 1.6 : 1;
-    for (let k = 0; k < this.stageLights.length; k += 2) {
+    const stepK = this.quality ? 2 : 4;
+    for (let k = 0; k < this.stageLights.length; k += stepK) {
       const l = this.stageLights[k];
       const ang = Math.atan2(l.dy, l.dx) + Math.sin(t * 1.3 + k) * 0.7;
       const len = 9 + Math.sin(t * 0.9 + k * 1.7) * 3;
       const ex = l.x + Math.cos(ang) * len, ey = l.y + Math.sin(ang) * len;
-      const g = c.createRadialGradient(ex, ey, 0, ex, ey, 3.2);
-      const a = (0.22 + 0.12 * Math.sin(t * 6 + k)) * level * surge;
-      g.addColorStop(0, hexA(l.c, a)); g.addColorStop(1, hexA(l.c, 0));
-      c.fillStyle = g;
-      c.beginPath(); c.arc(ex, ey, 3.2, 0, 6.283); c.fill();
-      // facho de luz
-      const g2 = c.createLinearGradient(l.x, l.y, ex, ey);
-      g2.addColorStop(0, hexA(l.c, 0.28 * level)); g2.addColorStop(1, hexA(l.c, 0));
-      c.fillStyle = g2;
-      const px = -Math.sin(ang), py = Math.cos(ang);
-      c.beginPath();
-      c.moveTo(l.x + px * 0.15, l.y + py * 0.15);
-      c.lineTo(ex + px * 2.2, ey + py * 2.2);
-      c.lineTo(ex - px * 2.2, ey - py * 2.2);
-      c.lineTo(l.x - px * 0.15, l.y - py * 0.15);
-      c.fill();
+      c.globalAlpha = Math.min(1, (0.45 + 0.25 * Math.sin(t * 6 + k)) * level * surge);
+      c.drawImage(this.glow(l.c), ex - 3.4, ey - 3.4, 6.8, 6.8);
+      if (this.quality) { // facho de luz
+        c.globalAlpha = 0.28 * level;
+        c.fillStyle = l.c;
+        const px = -Math.sin(ang), py = Math.cos(ang);
+        c.beginPath();
+        c.moveTo(l.x + px * 0.15, l.y + py * 0.15);
+        c.lineTo(ex + px * 1.8, ey + py * 1.8);
+        c.lineTo(ex - px * 1.8, ey - py * 1.8);
+        c.lineTo(l.x - px * 0.15, l.y - py * 0.15);
+        c.globalAlpha = 0.12 * level;
+        c.fill();
+      }
     }
-    // luzes piscando na borda do palco
+    c.globalAlpha = 1;
     for (let k = 0; k < this.stageLights.length; k++) {
       const l = this.stageLights[k];
-      const on = Math.sin(t * 8 + k * 0.9) > 0.2;
-      if (!on) continue;
-      const g = c.createRadialGradient(l.x, l.y, 0, l.x, l.y, 0.9);
-      g.addColorStop(0, hexA(l.c, 0.9 * level)); g.addColorStop(1, hexA(l.c, 0));
-      c.fillStyle = g; c.beginPath(); c.arc(l.x, l.y, 0.9, 0, 6.283); c.fill();
+      if (Math.sin(t * 8 + k * 0.9) <= 0.2) continue;
+      c.globalAlpha = level;
+      c.drawImage(this.glow(l.c), l.x - 1, l.y - 1, 2, 2);
     }
+    c.globalAlpha = 1;
     c.globalCompositeOperation = 'source-over';
   }
 
   // ---------- pessoas ----------
+  // Desenho em LOTES: as pessoas são agrupadas por cor (contagem) e cada cor vira um único fill().
   drawPeople(c, sim, opts, ph) {
-    const px = this.cam.z * this.dpr;      // pixels de tela por metro
-    const r = sim.p.radius;
+    const pr = this.cam.z * sim.p.radius;  // raio de uma pessoa em px de CSS
     const danger = sim.p.dangerDensity;
     const N = sim.N;
     const tiles = this.world.tiles, W = this.world.W;
-    const show = ph?.show;
     const showing = ph && (ph.kind === 'hold' || ph.kind === 'follow');
-    const tifo = show === 'match' && ph.kind === 'hold';
+    const tifo = ph?.show === 'match' && ph.kind === 'hold';
     const carnival = !!this.world.level.parade;
     const t = this.time;
-    // visibilidade (só desenha o que está na tela)
     const cam = this.cam;
     const hw = this.vw / 2 / cam.z + 1, hh = this.vh / 2 / cam.z + 1;
     const x0 = cam.x - hw, x1 = cam.x + hw, y0 = cam.y - hh, y1 = cam.y + hh;
+    const X = sim.x, Y = sim.y, st = sim.state;
 
-    const colorOf = i => {
-      if (tifo && tiles[((sim.y[i] | 0) * W) + (sim.x[i] | 0)] === TILE.SEATS) return this.tifoColor(sim.x[i], sim.y[i], t);
-      if (opts.heat) return HEAT_CSS[Math.min(HEAT_STEPS - 1, Math.max(0, Math.round(sim.localD[i] / danger * (HEAT_STEPS - 1))))];
-      return carnival ? ABADAS[sim.shirt[i] % ABADAS.length] : SHIRTS[sim.shirt[i] % SHIRTS.length];
-    };
+    // 1) índice de cor de cada pessoa visível + contagem por cor
+    const P = this.palette;
+    if (!this.colIdx || this.colIdx.length < N) { this.colIdx = new Uint8Array(N); this.order = new Int32Array(N); }
+    const col = this.colIdx, order = this.order;
+    const cnt = this.palCount.fill(0);
+    let vis = 0;
+    for (let i = 0; i < N; i++) {
+      if (st[i] !== STATE.ACTIVE) { col[i] = 255; continue; }
+      const x = X[i], y = Y[i];
+      if (x < x0 || x > x1 || y < y0 || y > y1) { col[i] = 255; continue; }
+      let k;
+      if (tifo && tiles[((y | 0) * W) + (x | 0)] === TILE.SEATS) k = P.tifo + this.tifoIdx(x, y, t);
+      else if (opts.heat) k = Math.min(HEAT_STEPS - 1, Math.max(0, Math.round(sim.localD[i] / danger * (HEAT_STEPS - 1))));
+      else k = carnival ? P.abada + sim.shirt[i] % ABADAS.length : P.shirt + sim.shirt[i] % SHIRTS.length;
+      col[i] = k; cnt[k]++; vis++;
+    }
+    // ordenação por contagem (O(N))
+    const start = this.palStart;
+    let acc = 0;
+    for (let k = 0; k < cnt.length; k++) { start[k] = acc; acc += cnt[k]; }
+    const fillPos = this.palFill; fillPos.set(start);
+    for (let i = 0; i < N; i++) if (col[i] !== 255) order[fillPos[col[i]]++] = i;
 
-    // ---- longe: só pontos (rápido)
-    if (px * r < 1.8) {
-      const s = Math.max(r * 1.6, 1.3 / px);
-      for (let i = 0; i < N; i++) {
-        if (sim.state[i] !== STATE.ACTIVE) continue;
-        const x = sim.x[i], y = sim.y[i];
-        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-        c.fillStyle = colorOf(i);
-        c.fillRect(x - s / 2, y - s / 2, s, s);
+    // 2) longe: quadradinhos
+    if (pr < 1.9) {
+      const s = Math.max(sim.p.radius * 1.7, 1.4 / cam.z);
+      for (let k = 0; k < cnt.length; k++) {
+        if (!cnt[k]) continue;
+        c.fillStyle = P.css[k];
+        for (let n = start[k], e = start[k] + cnt[k]; n < e; n++) { const i = order[n]; c.fillRect(X[i] - s / 2, Y[i] - s / 2, s, s); }
       }
-      this.drawFallen(c, sim, px, x0, x1, y0, y1);
+      this.drawFallen(c, sim, x0, x1, y0, y1);
       return;
     }
 
-    const detail = px * r;
-    // ---- sombras
-    if (detail > 2.5) {
+    const jumpOf = i => (showing ? this.jump(i, sim) : 0);
+    // 3) sombras (um fill)
+    if (pr > 2.2 && this.quality > 0) {
       c.fillStyle = this.night ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.22)';
       c.beginPath();
-      for (let i = 0; i < N; i++) {
-        if (sim.state[i] !== STATE.ACTIVE) continue;
-        const x = sim.x[i], y = sim.y[i];
-        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-        const jump = showing ? this.jump(i, sim) : 0;
-        const o = 0.07 + jump * 0.25;
-        c.moveTo(x + o + r, y + o * 1.2);
-        c.arc(x + o, y + o * 1.2, r * (1 - jump * 0.25), 0, 6.283);
+      for (let n = 0; n < vis; n++) {
+        const i = order[n];
+        const j = jumpOf(i), o = 0.07 + j * 0.25, rr = 0.23 * (1 - j * 0.25);
+        c.moveTo(X[i] + o + rr, Y[i] + o * 1.2);
+        c.arc(X[i] + o, Y[i] + o * 1.2, rr, 0, 6.283);
       }
       c.fill();
     }
-    this.drawFallen(c, sim, px, x0, x1, y0, y1);
-    // ---- corpos
-    for (let i = 0; i < N; i++) {
-      if (sim.state[i] !== STATE.ACTIVE) continue;
-      const x = sim.x[i], y = sim.y[i];
-      if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      const h = sim.heading[i];
-      const jump = showing ? this.jump(i, sim) : 0;
-      const sc = 1 + jump * 0.18;
-      const ch = Math.cos(h), sh = Math.sin(h);
-      const moving = sim.vx[i] * sim.vx[i] + sim.vy[i] * sim.vy[i] > 0.04;
-      // pés (alternando enquanto anda)
-      if (detail > 3.2 && moving) {
-        const st = Math.sin(sim.walk[i]) * 0.13;
-        c.fillStyle = '#222';
-        c.beginPath();
-        c.arc(x + ch * st - sh * 0.09, y + sh * st + ch * 0.09, 0.055, 0, 6.283);
-        c.arc(x - ch * st + sh * 0.09, y - sh * st - ch * 0.09, 0.055, 0, 6.283);
-        c.fill();
-      }
-      // tronco (ombros) — elipse perpendicular à direção
-      c.fillStyle = colorOf(i);
+    this.drawFallen(c, sim, x0, x1, y0, y1);
+
+    // 4) pés e braços só bem de perto (poucas pessoas na tela)
+    const close = pr > 4.5;
+    if (close) {
+      c.fillStyle = '#222';
       c.beginPath();
-      c.ellipse(x, y, 0.13 * sc, 0.24 * sc, h, 0, 6.283);
-      c.fill();
-      // braços para cima na euforia
-      if (detail > 3.5 && showing && (sim.surge || jump > 0.4)) {
-        c.fillStyle = '#e0ac69';
-        c.beginPath();
-        c.arc(x + ch * 0.12 - sh * 0.2, y + sh * 0.12 + ch * 0.2, 0.05, 0, 6.283);
-        c.arc(x + ch * 0.12 + sh * 0.2, y + sh * 0.12 - ch * 0.2, 0.05, 0, 6.283);
-        c.fill();
+      for (let n = 0; n < vis; n++) {
+        const i = order[n];
+        if (sim.vx[i] * sim.vx[i] + sim.vy[i] * sim.vy[i] < 0.04) continue;
+        const h = sim.heading[i], ch = Math.cos(h), sh = Math.sin(h);
+        const sw = Math.sin(sim.walk[i]) * 0.13;
+        const ax = X[i] + ch * sw - sh * 0.09, ay = Y[i] + sh * sw + ch * 0.09;
+        const bx = X[i] - ch * sw + sh * 0.09, by = Y[i] - sh * sw - ch * 0.09;
+        c.moveTo(ax + 0.055, ay); c.arc(ax, ay, 0.055, 0, 6.283);
+        c.moveTo(bx + 0.055, by); c.arc(bx, by, 0.055, 0, 6.283);
       }
-      // cabeça
-      c.fillStyle = HAIR[sim.shirt[i] % HAIR.length];
-      c.beginPath();
-      c.arc(x + ch * 0.02, y + sh * 0.02, 0.1 * sc, 0, 6.283);
       c.fill();
-      // alerta de aperto: anel vermelho em quem está perto de cair
-      if (detail > 3 && sim.stress[i] > sim.p.stressToFall * 0.5) {
-        const a = Math.min(1, sim.stress[i] / sim.p.stressToFall);
-        c.strokeStyle = `rgba(255,40,40,${a})`;
-        c.lineWidth = 0.05;
-        c.beginPath(); c.arc(x, y, 0.3, 0, 6.283); c.stroke();
+    }
+
+    // 5) troncos: uma elipse por pessoa, um fill por cor
+    for (let k = 0; k < cnt.length; k++) {
+      if (!cnt[k]) continue;
+      c.fillStyle = P.css[k];
+      c.beginPath();
+      for (let n = start[k], e = start[k] + cnt[k]; n < e; n++) {
+        const i = order[n];
+        const sc = 1 + jumpOf(i) * 0.18;
+        const h = sim.heading[i];
+        c.moveTo(X[i] + Math.cos(h + 1.5708) * 0.24 * sc, Y[i] + Math.sin(h + 1.5708) * 0.24 * sc);
+        c.ellipse(X[i], Y[i], 0.13 * sc, 0.24 * sc, h, 1.5708, 1.5708 + 6.283);
+      }
+      c.fill();
+    }
+
+    // 6) braços para cima na euforia
+    if (close && showing) {
+      c.fillStyle = '#e0ac69';
+      c.beginPath();
+      for (let n = 0; n < vis; n++) {
+        const i = order[n];
+        if (!(sim.surge || jumpOf(i) > 0.4)) continue;
+        const h = sim.heading[i], ch = Math.cos(h), sh = Math.sin(h);
+        const ax = X[i] + ch * 0.12 - sh * 0.2, ay = Y[i] + sh * 0.12 + ch * 0.2;
+        const bx = X[i] + ch * 0.12 + sh * 0.2, by = Y[i] + sh * 0.12 - ch * 0.2;
+        c.moveTo(ax + 0.05, ay); c.arc(ax, ay, 0.05, 0, 6.283);
+        c.moveTo(bx + 0.05, by); c.arc(bx, by, 0.05, 0, 6.283);
+      }
+      c.fill();
+    }
+
+    // 7) cabeças: um fill por cor de cabelo
+    if (pr > 1.8) {
+      for (let hc = 0; hc < HAIR.length; hc++) {
+        c.fillStyle = HAIR[hc];
+        c.beginPath();
+        for (let n = 0; n < vis; n++) {
+          const i = order[n];
+          if (sim.shirt[i] % HAIR.length !== hc) continue;
+          const rr = 0.1 * (1 + jumpOf(i) * 0.18);
+          c.moveTo(X[i] + rr, Y[i]); c.arc(X[i], Y[i], rr, 0, 6.283);
+        }
+        c.fill();
       }
     }
+
+    // 8) anel de alerta em quem está perto de cair (visível a partir de zoom médio)
+    if (pr > 2) {
+      const lim = sim.p.stressToFall;
+      c.lineWidth = Math.max(0.05, 1.5 / cam.z);
+      c.strokeStyle = 'rgba(255,40,40,0.9)';
+      c.beginPath();
+      for (let n = 0; n < vis; n++) {
+        const i = order[n];
+        if (sim.stress[i] <= lim * 0.5) continue;
+        c.moveTo(X[i] + 0.32, Y[i]); c.arc(X[i], Y[i], 0.32, 0, 6.283);
+      }
+      c.stroke();
+    }
+  }
+
+  tifoIdx(x, y, t) {
+    const p = this.world.level.pitch;
+    const ang = Math.atan2(y - (p.y + p.h / 2), x - (p.x + p.w / 2));
+    if (Math.sin(ang * 3 - t * 4) > 0.92) return 2;
+    return Math.floor((ang + Math.PI) / (Math.PI / 10) + t * 0.6) % 2;
   }
 
   jump(i, sim) {
@@ -821,33 +921,34 @@ export class Renderer {
     return Math.max(0, base) * amp;
   }
 
-  tifoColor(x, y, t) {
-    // mosaico em faixas vermelho/branco que "ondula" pela arquibancada
-    const p = this.world.level.pitch;
-    const ang = Math.atan2(y - (p.y + p.h / 2), x - (p.x + p.w / 2));
-    const band = Math.floor((ang + Math.PI) / (Math.PI / 10) + t * 0.6) % 2;
-    const wave = Math.sin(ang * 3 - t * 4) > 0.92;
-    if (wave) return '#ffd400';
-    return band ? '#c8102e' : '#f5f5f5';
-  }
-
-  drawFallen(c, sim, px, x0, x1, y0, y1) {
-    c.lineWidth = Math.max(0.09, 1.8 / px);
+  drawFallen(c, sim, x0, x1, y0, y1) {
+    const z = this.cam.z;
+    const near = z * 0.23 > 2;
+    const k = Math.max(0.22, 3 / z);
+    if (near) {
+      c.fillStyle = this.night ? '#55585f' : '#8a8780';
+      c.beginPath();
+      for (let i = 0; i < sim.N; i++) {
+        if (sim.state[i] !== STATE.FALLEN) continue;
+        const x = sim.x[i], y = sim.y[i];
+        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+        const h = sim.heading[i];
+        c.moveTo(x + Math.cos(h) * 0.36, y + Math.sin(h) * 0.36);
+        c.ellipse(x, y, 0.36, 0.16, h, 0, 6.283);
+      }
+      c.fill();
+    }
+    c.lineWidth = Math.max(0.09, 1.8 / z);
+    c.strokeStyle = '#b3121b';
+    c.beginPath();
     for (let i = 0; i < sim.N; i++) {
       if (sim.state[i] !== STATE.FALLEN) continue;
       const x = sim.x[i], y = sim.y[i];
       if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-      if (px * 0.23 > 2) {
-        c.fillStyle = this.night ? '#55585f' : '#8a8780';
-        c.beginPath(); c.ellipse(x, y, 0.36, 0.16, sim.heading[i], 0, 6.283); c.fill();
-      }
-      const k = Math.max(0.22, 3 / px);
-      c.strokeStyle = '#b3121b';
-      c.beginPath();
       c.moveTo(x - k, y - k); c.lineTo(x + k, y + k);
       c.moveTo(x + k, y - k); c.lineTo(x - k, y + k);
-      c.stroke();
     }
+    c.stroke();
   }
 
   // ---------- trio elétrico ----------
@@ -873,12 +974,9 @@ export class Renderer {
     // luzes
     c.globalCompositeOperation = 'lighter';
     for (let k = 0; k < 6; k++) {
-      const on = Math.sin(this.time * 9 + k * 1.3) > 0;
-      if (!on) continue;
+      if (Math.sin(this.time * 9 + k * 1.3) <= 0) continue;
       const lx = -L / 2 + 0.6 + k * (L - 2) / 5, ly = (k % 2 ? 1 : -1) * (Wd / 2 - 0.3);
-      const g = c.createRadialGradient(lx, ly, 0, lx, ly, 1.6);
-      g.addColorStop(0, hexA(cols[k % 4], 0.8)); g.addColorStop(1, hexA(cols[k % 4], 0));
-      c.fillStyle = g; c.beginPath(); c.arc(lx, ly, 1.6, 0, 6.283); c.fill();
+      c.drawImage(this.glow(cols[k % 4]), lx - 1.8, ly - 1.8, 3.6, 3.6);
     }
     c.globalCompositeOperation = 'source-over';
     c.restore();
@@ -929,6 +1027,7 @@ export class Renderer {
   // ---------- confete ----------
   spawnConfetti(sim, n) {
     const w = this.world;
+    if (!this.quality) n = Math.floor(n / 3);
     let cells = [];
     const ph = sim.phase;
     if (ph.zone !== undefined) cells = w.zoneCells(ph.zone);
@@ -1003,12 +1102,36 @@ export class Renderer {
   }
 
   drawHover(c, opts) {
+    const lw = Math.max(0.06, 2 / this.cam.z);
+    // prévia do traço (construção em linha)
+    const g = this.ghost;
+    if (g) {
+      const pulse = 0.55 + 0.25 * Math.sin(this.time * 8);
+      for (const { x, y, ok } of g.cells) {
+        if (!this.world.inside(x, y)) continue;
+        c.fillStyle = ok ? (g.tool === 'erase' ? `rgba(231,76,60,${pulse * 0.6})` : `rgba(46,204,113,${pulse * 0.55})`) : 'rgba(231,76,60,0.25)';
+        c.fillRect(x + 0.04, y + 0.04, 0.92, 0.92);
+        if (ok && g.tool === 'fence') { c.fillStyle = 'rgba(20,20,20,0.85)'; c.fillRect(x + 0.3, y + 0.3, 0.4, 0.4); }
+        if (!ok) {
+          c.strokeStyle = 'rgba(231,76,60,0.9)'; c.lineWidth = lw;
+          c.beginPath(); c.moveTo(x + 0.25, y + 0.25); c.lineTo(x + 0.75, y + 0.75); c.moveTo(x + 0.75, y + 0.25); c.lineTo(x + 0.25, y + 0.75); c.stroke();
+        }
+      }
+      if (g.tool === 'staff' && g.cells[0]) {
+        const { x, y, ok } = g.cells[0];
+        c.setLineDash([0.4, 0.4]);
+        c.strokeStyle = ok ? 'rgba(255,214,0,0.9)' : 'rgba(231,76,60,0.8)'; c.lineWidth = lw;
+        c.beginPath(); c.arc(x + 0.5, y + 0.5, this.world.p.staffRadius, 0, 6.283); c.stroke();
+        c.setLineDash([]);
+      }
+      return;
+    }
     const h = this.hover;
     const tool = opts.tool;
     if (!h || !tool || tool === 'pan' || !this.world.inside(h.x, h.y)) return;
     const ok = this.world.canPlace(tool, h.x, h.y);
     c.strokeStyle = ok ? '#2ecc71' : '#e74c3c';
-    c.lineWidth = Math.max(0.08, 2 / (this.cam.z * this.dpr));
+    c.lineWidth = lw;
     c.strokeRect(h.x + 0.05, h.y + 0.05, 0.9, 0.9);
     if (tool === 'staff' && ok) {
       c.setLineDash([0.4, 0.4]);

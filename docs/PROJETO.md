@@ -57,20 +57,28 @@ MENU → BRIEFING → PLANEJAMENTO → EVENTO AO VIVO → RESULTADO (estrelas + 
 
 Durante o evento todos os custos dobram (selo **obra ×2**) e as rotas são recalculadas na hora.
 
-### 3.2 Câmera
+### 3.2 Como construir (v0.3)
+- **Traço em linha:** arraste da primeira à última célula. Uma prévia mostra as células (verde = dá, vermelho = não dá) e o custo total; **nada é construído até soltar**. O traço trava em reta horizontal, vertical ou 45° quando está quase alinhado.
+- **Dois dedos cancelam** o traço em andamento e viram arrasto/zoom.
+- **↶ Desfazer** (ou Ctrl+Z) desfaz o último traço inteiro. `Esc` cancela o traço.
+- Perto da borda da tela, a câmera anda sozinha para continuar o traço.
+- Durante o evento o padrão é **olhar** (arrastar move a câmera); 🛠 abre a gaveta de obras de emergência.
+- Toque duplo aproxima; outro toque duplo volta a ver tudo.
+
+### 3.3 Câmera
 - Pinça (celular), roda do mouse ou pinça do trackpad: zoom de "ver tudo" até ~60 px/m.
 - Botões **+ / − / ⤢**.
 - 🎥 **Câmera do perigo**: segue suavemente o ponto mais apertado da multidão, como as tomadas do trailer.
 - Abertura cinematográfica: cada fase começa perto do palco (ou do trio) e afasta até mostrar o mapa.
 
-### 3.3 Fases
+### 3.4 Fases
 | # | Fase | Pessoas | Limite | Mecânica central | Referência |
 |---|------|---------|--------|------------------|------------|
 | 1 | 🎤 Show no Pátio | 900 | 8 | Portões estreitos, ondas de euforia contra a grade da passarela | quadros 01–03 |
 | 2 | 🎪 Festival de Dois Palcos | 650 | 22 | Toda a multidão atravessa o campo entre barracas | — |
 | 3 | 🎆 Réveillon na Praça (noite) | 1300 | 8 | Oito ruas convergindo; sem portões; contagem regressiva com fogos | quadros 05–06 |
 | 4 | ⚽ Clássico no Estádio | 1700 | 5 | Torcida já sentada; mosaico; saída por vomitórios e portões | quadro 07 |
-| 5 | 🎺 Bloco de Carnaval | 1400 | 14 | Trio elétrico em movimento arrasta a multidão; viaduto estreita a avenida | — |
+| 5 | 🎺 Bloco de Carnaval | 1400 | 16 | Trio elétrico em movimento arrasta a multidão; viaduto estreita a avenida | — |
 | 6 | 🚇 Estação na Hora do Rush | 1150 | 5 | Cinco trens despejam passageiros em sequência; escadas e catracas | — |
 
 Calibração (semente 7, `node tests/headless.mjs`), sem plano → com plano de referência:
@@ -84,7 +92,7 @@ Calibração (semente 7, `node tests/headless.mjs`), sem plano → com plano de 
 | Carnaval | 32 | 11 |
 | Metrô | 11 | 0 |
 
-### 3.4 Resultado
+### 3.5 Resultado
 - ★★★ = 0 pisoteados · ★★ = até metade do limite · ★ = até o limite · acima = "Tragédia".
 - Gráfico de **pressão máxima (p/m²)** e **pisoteados** ao longo do tempo, com a faixa de perigo marcada, para o jogador entender *quando* o espaço falhou.
 
@@ -109,6 +117,8 @@ Arquivo: `js/sim.js`. **Não acessa DOM**, então roda igual no navegador e no N
 Arrays tipados: `x, y, vx, vy, v0, stress, panic, fx, fy, heading, walk, shirt, state`.
 
 A cada passo (1/30 s):
+(Desde a v0.3 a grade de vizinhos é montada uma vez por passo, a densidade usa suavização separável com área pré-calculada e há 2 rodadas de contato com `pushK` 0,9. Isso deixou o passo ~40% mais barato com a mesma calibração.)
+
 1. **Vontade:** direção do campo × velocidade desejada × velocidade do piso.
 2. **Plateia:** quem chegou avança rumo ao palco enquanto a densidade estiver abaixo de `standDensity × euforia`. Na arquibancada, fica sentado.
 3. **Diagrama fundamental:** a velocidade cai com a densidade à frente. Pressa (evacuação), euforia e pânico aumentam o quanto a pessoa empurra.
@@ -146,7 +156,8 @@ A cada passo (1/30 s):
 
 Arquivos: `js/render.js`, `js/audio.js`, `css/style.css`.
 
-- **Câmera** em metros: tudo é desenhado com uma transformação (`cam.x, cam.y, cam.z`). A camada fixa é pré-renderizada a até 40 px/m (~6 Mpx no máximo).
+- **Câmera** em metros: tudo é desenhado com uma transformação (`cam.x, cam.y, cam.z`). A camada fixa é pré-renderizada (até 32 px/m; 2,5 Mpx no celular, 5 Mpx no PC).
+- **Desempenho:** pessoas desenhadas em **lotes por cor** (ordenação por contagem: dezenas de `fill()` por quadro em vez de milhares); brilhos são sprites prontos; vinheta em cache; mapa de calor atualizado a cada 2 quadros. A simulação usa no máximo ~7–9 ms por quadro: se o aparelho não acompanha, a velocidade real cai (o botão de velocidade fica sublinhado) em vez de a tela travar. Se os quadros ficarem lentos, a **qualidade econômica** liga sozinha (sem sombras e fachos, resolução 1×).
 - **Pessoas** com nível de detalhe: de longe são pontos coloridos; de perto ganham sombra, ombros orientados pela direção do movimento, cabeça com cor de cabelo, **pés que alternam ao andar**, pulo e braços para cima no show, e anel vermelho de alerta quando estão perto de cair. Só o que está na tela é desenhado.
 - **Cores:** mapa de calor (padrão), camisetas variadas, abadás no carnaval e **mosaico** que ondula na arquibancada durante o jogo.
 - **Efeitos por evento:** fachos e poças de luz coloridas do palco (mais fortes nos "drops"), confete caindo, fogos de artifício com clarão no réveillon, trio com luzes piscando, trem chegando e partindo, viaduto semitransparente por cima da multidão.
@@ -190,7 +201,13 @@ pisoteio/
 - [x] Três cenários novos: estádio, carnaval, metrô
 - [x] Gráfico no resultado e som ambiente
 
-**v0.3**
+**v0.3 (feito)**
+- [x] Construção em linha com prévia e custo; desfazer; pinça que não constrói por engano
+- [x] Interface compacta no celular; gaveta de obras durante o evento
+- [x] Desenho em lotes, orçamento de tempo da simulação e qualidade adaptativa
+
+**v0.4**
+- [ ] Simulação num Web Worker (usa outro núcleo do celular)
 - [ ] Fase **Corrida na Pista** (quadro 04), com corredores atravessando o público.
 - [ ] Ferramentas: placa de saída (puxa o fluxo), telão (atrai público), corredor de mão única.
 - [ ] Replay com câmera lenta no momento da primeira queda.
@@ -198,7 +215,7 @@ pisoteio/
 - [ ] Editor de fases e compartilhamento por URL.
 
 **v1.0**
-- [ ] WebGL/instancing para 5.000+ pessoas; simulação num Web Worker.
+- [ ] WebGL/instancing para 5.000+ pessoas.
 - [ ] Clima (chuva acelera a saída), dia → noite durante o evento.
 - [ ] Ranking por fase (menos pisoteados com menor custo).
 

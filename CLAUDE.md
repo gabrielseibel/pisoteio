@@ -1,6 +1,6 @@
 # CLAUDE.md: instruções para o Claude Code
 
-Projeto: **Pisoteio**, um simulador de gestão de multidões para navegador (v0.2).
+Projeto: **Pisoteio**, um simulador de gestão de multidões para navegador (v0.3).
 Leia `docs/PROJETO.md` antes de qualquer mudança grande. Os quadros de referência visual estão em `docs/referencias/` (abra as imagens para entender o clima pretendido).
 
 ## Regras do projeto
@@ -9,6 +9,8 @@ Leia `docs/PROJETO.md` antes de qualquer mudança grande. Os quadros de referên
 - `js/sim.js` **nunca** importa DOM, para continuar rodando no Node (testes headless).
 - Mobile first: tudo precisa funcionar por toque numa tela de ~400 px de largura.
 - Desempenho: até ~1.500 pessoas a 60 fps num celular médio. Use arrays tipados e evite alocar objetos dentro do laço de passo.
+  No desenho, agrupe por cor e faça um `fill()` por lote; nunca crie gradientes por quadro (use `renderer.glow(cor)`).
+  Para medir: Playwright com `Emulation.setCPUThrottlingRate` 4 e viewport 390 × 844 com toque.
 - O tema é sério: nada de sangue ou violência gráfica (ver seção 8 do PROJETO.md).
 
 ## Comandos
@@ -37,4 +39,4 @@ node tests/headless.mjs 0 patio_bom  # fase 1 com o plano de referência
 - `main.js`: estados `menu | plan | run | result`, Pointer Events, HUD, laço com passo fixo de 1/30 s.
 
 ## Próximas tarefas sugeridas
-Veja a seção 7 (Roteiro) do `docs/PROJETO.md`. O v0.2 está feito; comece pelo v0.3.
+Veja a seção 7 (Roteiro) do `docs/PROJETO.md`. O v0.3 está feito; comece pelo v0.4 (Web Worker).

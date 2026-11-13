@@ -248,7 +248,7 @@ function carnaval() {
   lv.budget = 380;
   lv.costs = { fence: 4, gate: 25, staff: 30 };
   lv.noGates = true;
-  lv.maxTrampled = 14;
+  lv.maxTrampled = 16;
   lv.phases = [
     { kind: 'enter', zone: 0, label: 'Concentração do bloco', excitement: 1.1, maxTime: 120 },
     { kind: 'follow', label: 'O trio saiu!', excitement: 1.4, maxTime: 260, show: 'carnival' },

@@ -23,7 +23,8 @@ export const PARAMS = {
   speed: 1.3,            // velocidade de caminhada (m/s)
   speedVar: 0.25,
   relax: 0.45,           // tempo para atingir a velocidade desejada (s)
-  pushK: 0.8,            // rigidez do empurra-empurra (0..1). <1 permite compressão
+  contactIters: 2,       // rodadas de empurra-empurra por passo
+  pushK: 0.9,            // rigidez do empurra-empurra (0..1). <1 permite compressão
   dangerDensity: 5.2,    // pessoas/m² a partir do qual o corpo sofre
   stressToFall: 1.6,     // estresse acumulado até cair
   stressRecover: 0.6,    // recuperação por segundo quando a pressão alivia
@@ -324,6 +325,7 @@ export class Simulation {
     this.head = new Int32Array(n);
     this.next = new Int32Array(N);
     this.peakDensity = 0;
+    this.gridStale = true;
     this.hot = { x: world.W / 2, y: world.H / 2, d: 0 }; // ponto mais apertado (câmera)
 
     this.field = new FlowField(world);
@@ -482,7 +484,7 @@ export class Simulation {
       }
     }
 
-    this.buildGrid();
+    if (this.gridStale) { this.buildGrid(); this.gridStale = false; }
     const fieldEvery = ph.kind === 'follow' ? 0.5 : p.fieldRefresh;
     if (this.fieldTimer >= fieldEvery) { this.fieldTimer = 0; this.refreshField(); }
 
@@ -574,7 +576,8 @@ export class Simulation {
     }
 
     // ---- empurra-empurra
-    for (let it = 0; it < 3; it++) { this.buildGrid(false); this.resolveContacts(); }
+    this.buildGrid(false);
+    for (let it = 0; it < this.p.contactIters; it++) this.resolveContacts();
     if (a && ph.kind === 'follow') this.resolveAttractor();
     this.resolveWalls();
     this.buildGrid();
@@ -718,19 +721,39 @@ export class Simulation {
       if (withDensity) this.count[c] += s === STATE.FALLEN ? 1.6 : 1;
     }
     if (!withDensity) return;
-    const cnt = this.count, den = this.density, tiles = this.w.tiles;
+    // suavização 3x3 com pesos [1,2,1] separáveis (horizontal e depois vertical)
+    if (this.areaVersion !== this.w.version) this.computeArea();
+    const cnt = this.count, tmp = this.tmp, den = this.density, inv = this.invArea;
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      for (let x = 0; x < W; x++) {
+        const i = r + x;
+        tmp[i] = 2 * cnt[i] + (x > 0 ? cnt[i - 1] : 0) + (x < W - 1 ? cnt[i + 1] : 0);
+      }
+    }
+    for (let y = 0; y < H; y++) {
+      const r = y * W;
+      for (let x = 0; x < W; x++) {
+        const i = r + x;
+        den[i] = (2 * tmp[i] + (y > 0 ? tmp[i - W] : 0) + (y < H - 1 ? tmp[i + W] : 0)) * inv[i];
+      }
+    }
+  }
+
+  // área livre ponderada em volta de cada célula (muda só quando o mapa muda)
+  computeArea() {
+    const W = this.w.W, H = this.w.H, tiles = this.w.tiles;
+    if (!this.invArea) { this.invArea = new Float32Array(W * H); this.tmp = new Float32Array(W * H); }
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      let s = 0, a = 0;
+      let a = 0;
       for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
         const nx = x + ox, ny = y + oy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        const wgt = (ox === 0 ? 2 : 1) * (oy === 0 ? 2 : 1);
-        if (!isSolid(tiles[j])) a += wgt;
-        s += cnt[j] * wgt;
+        if (!isSolid(tiles[ny * W + nx])) a += (ox === 0 ? 2 : 1) * (oy === 0 ? 2 : 1);
       }
-      den[y * W + x] = a > 0 ? s / a : 0;
+      this.invArea[y * W + x] = a > 0 ? 1 / a : 0;
     }
+    this.areaVersion = this.w.version;
   }
 
   densityAt(px, py) {
@@ -747,33 +770,35 @@ export class Simulation {
   resolveContacts() {
     const W = this.w.W, H = this.w.H, p = this.p;
     const r = p.radius, rb = p.bodyRadius, k = p.pushK * 0.5;
+    const X = this.x, Y = this.y, st = this.state, head = this.head, next = this.next;
+    const rr0 = 4 * r * r, rf = r + rb, rr1 = rf * rf;
     for (let i = 0; i < this.N; i++) {
-      if (this.state[i] !== STATE.ACTIVE) continue;
-      const cx = this.x[i] | 0, cy = this.y[i] | 0;
+      if (st[i] !== STATE.ACTIVE) continue;
+      const cx = X[i] | 0, cy = Y[i] | 0;
       for (let oy = -1; oy <= 1; oy++) {
         const ny = cy + oy; if (ny < 0 || ny >= H) continue;
         for (let ox = -1; ox <= 1; ox++) {
           const nx = cx + ox; if (nx < 0 || nx >= W) continue;
-          let j = this.head[ny * W + nx];
+          let j = head[ny * W + nx];
           while (j !== -1) {
-            if (j !== i && (this.state[j] === STATE.FALLEN || j > i)) {
-              const fallen = this.state[j] === STATE.FALLEN;
-              const rr = fallen ? r + rb : 2 * r;
-              let dx = this.x[i] - this.x[j], dy = this.y[i] - this.y[j];
+            const sj = st[j];
+            if (j !== i && (sj === STATE.FALLEN || (j > i && sj === STATE.ACTIVE))) {
+              let dx = X[i] - X[j], dy = Y[i] - Y[j];
               let d2 = dx * dx + dy * dy;
-              if (d2 < rr * rr) {
+              const fallen = sj === STATE.FALLEN;
+              const lim = fallen ? rr1 : rr0;
+              if (d2 < lim) {
                 if (d2 < 1e-8) { dx = this.rng() - 0.5; dy = this.rng() - 0.5; d2 = dx * dx + dy * dy; }
                 const d = Math.sqrt(d2);
-                const ov = (rr - d) / d;
-                if (fallen) {
-                  this.x[i] += dx * ov * 0.5; this.y[i] += dy * ov * 0.5;
-                } else {
-                  this.x[i] += dx * ov * k; this.y[i] += dy * ov * k;
-                  this.x[j] -= dx * ov * k; this.y[j] -= dy * ov * k;
+                const ov = ((fallen ? rf : 2 * r) - d) / d;
+                if (fallen) { X[i] += dx * ov * 0.5; Y[i] += dy * ov * 0.5; }
+                else {
+                  X[i] += dx * ov * k; Y[i] += dy * ov * k;
+                  X[j] -= dx * ov * k; Y[j] -= dy * ov * k;
                 }
               }
             }
-            j = this.next[j];
+            j = next[j];
           }
         }
       }

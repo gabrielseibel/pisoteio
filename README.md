@@ -16,8 +16,8 @@ Simulador de gestão de multidões que roda no navegador. Antes do evento você 
 
 ## Como jogar
 1. Escolha um evento e leia o briefing (número de pessoas e limite de pisoteados).
-2. **Planeje:** toque e arraste no mapa para colocar **grades**, abrir **portões** e passagens fechadas (listras amarelas e pretas) e posicionar **seguranças**, que acalmam quem está por perto. Os rastros coloridos mostram por onde o público vai passar.
-3. Aperte **▶ Começar**. Durante o evento você ainda pode fazer obras de emergência, pagando o dobro.
+2. **Planeje:** arraste no mapa para construir em linha (a prévia mostra o custo antes de soltar; ↶ desfaz). Coloque **grades**, abrir **portões** e passagens fechadas (listras amarelas e pretas) e posicionar **seguranças**, que acalmam quem está por perto. Os rastros coloridos mostram por onde o público vai passar.
+3. Aperte **▶ Começar**. Durante o evento, arrastar move a câmera; 🛠 abre as obras de emergência (custo ×2).
 4. Acompanhe o **mapa de calor** e o medidor de **pressão**. Pinça ou roda do mouse dá zoom; 🎥 segue o ponto mais apertado.
 5. Termine com até o limite de pisoteados para ganhar de 1 a 3 estrelas. O resultado mostra um gráfico de quando a pressão subiu.
 

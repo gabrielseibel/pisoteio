@@ -111,7 +111,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; }
 .ctl { background: var(--panel-2); border-radius: 12px; height: 44px; min-width: 44px; padding: 0 8px; font-weight: 800; font-size: 16px;
   border: 2px solid transparent; flex: 0 0 auto; }
 .ctl.active { border-color: var(--accent); }
-.ctl.limited { color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+.ctl.limited { color: var(--accent); border-color: rgba(242,201,76,.45); }
 .ctl:disabled { opacity: .35; }
 .primary { margin-left: auto; background: var(--danger); color: #fff; font-family: var(--display); font-size: 18px; letter-spacing: .5px;
   border-radius: 12px; height: 44px; padding: 0 16px; box-shadow: 0 3px 0 #8d1d20; flex: 0 0 auto; }
